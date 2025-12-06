@@ -125,6 +125,15 @@ inline Mat4 posRotToTransform(const Vec3& pos, const Vec3& rot)
     return T;
 }
 
+inline Mat4 posRotToTransform(const Vec6& pose)
+{
+    Mat4 T = Mat4::Identity();
+    T.block<3, 3>(0, 0) = expMap(pose.tail<3>());
+    T.block<3, 1>(0, 3) = pose.head<3>();
+    return T;
+}
+
+
 // Cartesian to polar coordinates (r, elevation, azimuth)
 inline Vec3 toPolar(const Vec3& xyz)
 {
@@ -135,6 +144,16 @@ inline Vec3 toPolar(const Vec3& xyz)
         std::atan2(xyz[1], xyz[0]));
 }
 
+inline Vec3f toPolarFloat(const Vec3f& xyz)
+{
+    float xy2 = (xyz[0]*xyz[0]) + (xyz[1]*xyz[1]);
+    return Vec3f(
+        std::sqrt(xy2 + (xyz[2]*xyz[2])),
+        std::atan2(std::sqrt(xy2), xyz[2]),
+        std::atan2(xyz[1], xyz[0]));
+}
+        
+
 inline Vec3 toXYZ(const Vec3& pol)
 {
     double s = std::sin(pol[1]);
@@ -142,4 +161,55 @@ inline Vec3 toXYZ(const Vec3& pol)
         pol[0]*s*std::cos(pol[2]),
         pol[0]*s*std::sin(pol[2]),
         pol[0]*std::cos(pol[1]));
+}
+
+inline Vec3f toXYZFloat(const Vec3f& pol)
+{
+    float s = std::sin(pol[1]);
+    return Vec3f(
+        pol[0]*s*std::cos(pol[2]),
+        pol[0]*s*std::sin(pol[2]),
+        pol[0]*std::cos(pol[1]));
+}
+
+
+inline std::pair<Vec3, Vec3> getPcTransform(const std::vector<Vec3>& target, const std::vector<Vec3>& source)
+{
+    if(target.size() != source.size() || target.size() <= 2)
+    {
+        throw std::runtime_error("getPcTransform: target and source must have the same size and at least 3 points");
+    }
+
+    // Compute centroids
+    Vec3 target_centroid = Vec3::Zero();
+    Vec3 source_centroid = Vec3::Zero();
+    for(size_t i = 0; i < target.size(); ++i)
+    {
+        target_centroid += target[i];
+        source_centroid += source[i];
+    }
+    target_centroid /= target.size();
+    source_centroid /= source.size();
+
+    // Compute cross-covariance matrix
+    Mat3 H = Mat3::Zero();
+    for(size_t i = 0; i < target.size(); ++i)
+    {
+        Vec3 d_target = target[i] - target_centroid;
+        Vec3 d_source = source[i] - source_centroid;
+        H += d_source * d_target.transpose();
+    }
+
+    // Compute SVD using eigen's JacobiSVD
+    Eigen::JacobiSVD<Mat3> svd(H, Eigen::ComputeFullU | Eigen::ComputeFullV);
+    Mat3 U = svd.matrixU();
+    Mat3 V = svd.matrixV();
+    Mat3 R = V * U.transpose();
+    if(R.determinant() < 0)
+    {
+        V.col(2) *= -1;
+        R = V * U.transpose();
+    }
+    Vec3 t = target_centroid - R * source_centroid;
+    return {t, logMap(R)};
 }

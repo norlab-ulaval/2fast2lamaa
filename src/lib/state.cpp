@@ -2,10 +2,11 @@
 
 #include "lice/utils.h"
 
-State::State(const ugpm::ImuData& imu_data, const double first_t, const double last_t, const double state_freq)
+State::State(const ugpm::ImuData& imu_data, const double first_t, const double state_freq)
     : start_t_(first_t)
 {
     state_period_ = 1.0 / state_freq;
+    double last_t = std::max(imu_data.acc.back().t, imu_data.gyr.back().t);
     nb_state_ = std::ceil((last_t - first_t) / state_period_);
     for(int i = 0; i < nb_state_; ++i)
     {
@@ -431,6 +432,47 @@ std::pair<Vec3, Vec3> State::queryTwist(
 }
 
 
+Vec3 State::queryVelocity(
+    const double query_time
+    , const Vec3& acc_bias
+    , const Vec3& gyr_bias
+    , const Vec3& gravity
+    , const Vec3& vel
+    , const double dt
+    ) const
+{
+    // Get the pose at the state time
+    std::vector<Vec3> state_vel(nb_state_);
+    for(int i = 0; i < nb_state_; ++i)
+    {
+        const ugpm::PreintMeas& preint = preint_meas_.at(i);
+
+        Vec3 v = vel + preint.delta_v + preint.d_delta_v_d_bf * acc_bias + preint.d_delta_v_d_bw * gyr_bias + preint.d_delta_v_d_t * dt + gravity*preint.dt;
+        state_vel.at(i) = v;
+    }
+    // Compute the pose at the query time as a linear interpolation of the state poses
+    int state_id = std::floor((query_time - state_time_.at(0)) / state_period_);
+    if(state_id < 0)
+    {
+        state_id = 0;
+    }
+    else if(state_id >= nb_state_-1)
+    {
+        state_id = nb_state_-2;
+    }
+    double t0 = state_time_.at(state_id);
+    double t1 = state_time_.at(state_id+1);
+    double alpha = (query_time - t0) / (t1 - t0);
+    const Vec3& v0 = state_vel.at(state_id);
+    const Vec3& v1 = state_vel.at(state_id+1);
+
+    Vec3 temp_vel = v0 + alpha * (v1 - v0);
+    return temp_vel;
+}
+    
+
+
+
 void testStateMonoJacobians()
 {
     std::cout << "============== testStateJacobians " << std::endl;
@@ -453,7 +495,7 @@ void testStateMonoJacobians()
     }
 
     // Create a state
-    State state(imu_data, 0, 1, 9);
+    State state(imu_data, 0, 9);
 
     Vec3 bf = Vec3::Random();
     Vec3 bw = Vec3::Random();
@@ -576,7 +618,7 @@ void testStateJacobians()
     }
 
     // Create a state
-    State state(imu_data, 0, 1, 9);
+    State state(imu_data, 0, 9);
 
     Vec3 bf = Vec3::Random();
     Vec3 bw = Vec3::Random();

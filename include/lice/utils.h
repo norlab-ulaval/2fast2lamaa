@@ -192,3 +192,8 @@ void printVector(std::vector<T> vec)
     std::cout << "]" << std::endl;
 }
 
+
+inline double nanosToSeconds(const int64_t nanos, const int64_t time_offset)
+{
+    return (nanos - time_offset) * 1e-9;
+}

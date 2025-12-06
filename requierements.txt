@@ -1,0 +1,17 @@
+# Requirements for boreas_to_ros2bags.py and loop_closure.py
+
+# For boreas_to_ros2bags.py
+rosbag2-py>=0.15.0
+pandas>=1.5.0
+numpy>=1.20.0
+rclpy>=3.0.0
+
+# For loop_closure.py
+polyscope>=2.0.0
+open3d>=0.16.0
+scipy>=1.9.0
+opencv-python>=4.6.0
+matplotlib>=3.5.0
+
+# Common dependencies
+numpy>=1.20.0

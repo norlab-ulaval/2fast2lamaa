@@ -2,45 +2,130 @@
 #include <iostream>
 #include <random>
 #include "KDTree.h"
-#include "lice/dynamic_score.h"
+#include "lice/lidar_odometry_node.h"
+#include "ankerl/unordered_dense.h"
+#include <ctime>
 
 typedef jk::tree::KDTree<std::pair<int,int>, 3, 16> KDTree3;
+typedef jk::tree::KDTree<int, 3, 16> KDTree3Simple;
 
 
-void LidarOdometry::addPc(const std::shared_ptr<std::vector<Pointd>>& pc, const std::shared_ptr<std::vector<Pointd> > features, const double t)
+
+
+LidarOdometry::LidarOdometry(const LidarOdometryParams& params, LidarOdometryNode* node)
+    : params_(params)
+    , node_(node)
 {
-    mutex_.lock();
-    pc_.push_back(pc);
-    features_.push_back(features);
-    pc_t_.push_back(t);
-    mutex_.unlock();
+    std::cout << "LidarOdometry constructor" << std::endl;
+
+    params_.association_filter_lin_quantum = 1.5*params_.feature_voxel_size;
+
+    // Initialize the state variables and current position and rotation
+    state_blocks_.resize(4, Vec3::Zero());
+    current_pos_ = Vec3::Zero();
+    current_rot_ = Vec3::Zero();
+
+
+    // Initialize the state calibration vector
+    Vec3 temp;
+    temp << params_.calib_rx, params_.calib_ry, params_.calib_rz;
+    ceres::AngleAxisToQuaternion<double>(temp.data(), state_calib_.data());
+    state_calib_[4] = params_.calib_px;
+    state_calib_[5] = params_.calib_py;
+    state_calib_[6] = params_.calib_pz;
+
+    // Initialize the loss function
+    loss_function_ = new ceres::CauchyLoss(params_.loss_function_scale);
+
+    // Initialize the sensor noise
+    imu_data_.acc_var = params_.acc_std*params_.acc_std;
+    imu_data_.gyr_var = params_.gyr_std*params_.gyr_std;
+    lidar_weight_ = 1.0/params_.lidar_std;
 }
 
-void LidarOdometry::addAccSample(const Vec3& acc, const double t)
+
+void LidarOdometry::addPc(const std::shared_ptr<std::vector<Pointd>>& pc, const int64_t t)
 {
+    bool has_imu_data = true;
+    imu_mutex_.lock();
+    if((imu_data_.acc.size() == 0) || (imu_data_.gyr.size() == 0) || (imu_data_.acc[0].t > nanosToImuTime(t)) || (imu_data_.gyr[0].t > nanosToImuTime(t)))
+    {
+        has_imu_data = false;
+    }
+    imu_mutex_.unlock();
+
     mutex_.lock();
+    // Keep track of a time offset to deal with ugpm::ImuData coded with doubles
+    if(first_ || !has_imu_data)
+    {
+        mutex_.unlock();
+        return;
+    }
+    if(last_pc_time_ >= 0)
+    {
+        scan_time_sum_ += (t - last_pc_time_);
+        scan_count_++;
+    }
+    last_pc_time_ = t;
+    mutex_.unlock();
+
+    splitAndFeatureExtraction(pc, t);
+}
+
+void LidarOdometry::addAccSample(const Vec3& acc, const int64_t t)
+{
+    // Keep track of a time offset to deal with ugpm::ImuData coded with doubles
+    mutex_.lock();
+    if(first_)
+    {
+        first_ = false;
+        imu_time_offset_ = t;
+    }
+    mutex_.unlock();
     ugpm::ImuSample imu_sample;
     imu_sample.data[0] = acc[0];
     imu_sample.data[1] = acc[1];
     imu_sample.data[2] = acc[2];
-    imu_sample.t = t;
+    imu_sample.t = nanosToImuTime(t);
+
+    imu_mutex_.lock();
     imu_data_.acc.push_back(imu_sample);
-    mutex_.unlock();
+    imu_mutex_.unlock();
 }
 
-void LidarOdometry::addGyroSample(const Vec3& gyro, const double t)
+void LidarOdometry::addGyroSample(const Vec3& gyro, const int64_t t)
 {
     mutex_.lock();
+    // Keep track of a time offset to deal with ugpm::ImuData coded with doubles
+    if(first_)
+    {
+        first_ = false;
+        imu_time_offset_ = t;
+    }
+    mutex_.unlock();
     ugpm::ImuSample imu_sample;
     imu_sample.data[0] = gyro[0];
     imu_sample.data[1] = gyro[1];
     imu_sample.data[2] = gyro[2];
-    imu_sample.t = t;
+    imu_sample.t = nanosToImuTime(t);
+
+    imu_mutex_.lock();
     imu_data_.gyr.push_back(imu_sample);
-    mutex_.unlock();
+    imu_mutex_.unlock();
 
 }
 
+void LidarOdometry::stop()
+{
+    mutex_.lock();
+    running_ = false;
+    mutex_.unlock();
+}
+
+std::shared_ptr<std::thread> LidarOdometry::runThread()
+{
+    return std::make_shared<std::thread>(&LidarOdometry::run, this);
+}
 
 
 
@@ -50,27 +135,22 @@ void LidarOdometry::run()
     running_ = true;
     while(running_)
     {
-        bool run_optimise = false;
+        // Check if there is enough point clouds chunks and enough IMU data to run the optimisation
         mutex_.lock();
-        if(features_.size() >= (size_t)(params_.nb_scans_per_submap))
-        {
-            run_optimise = true;
-            int last_id = params_.nb_scans_per_submap - 1;
-            double last_t = pc_[last_id]->back().t;
-
-
-            // Check if last acc and last gyro timestamps are later than the last point cloud timestamp
-            if((imu_data_.acc.size() > 0)&&(imu_data_.gyr.size() > 0))
-            {
-                if((imu_data_.acc.back().t < last_t)||(imu_data_.gyr.back().t < last_t))
-                {
-                    run_optimise = false;
-                }
-            }
-
-        }
+        int64_t last_time_t = imu_time_offset_;
+        int64_t scan_period = (scan_count_ > 0) ? (int64_t)(scan_time_sum_ / scan_count_) : 100000000; 
         mutex_.unlock();
-        if(run_optimise)
+        imu_mutex_.lock();
+        if(imu_data_.acc.size() > 0 && imu_data_.gyr.size() > 0)
+        {
+             last_time_t += std::min((int64_t)(imu_data_.acc.back().t * 1e9), (int64_t)(imu_data_.gyr.back().t * 1e9));
+        }
+        imu_mutex_.unlock();
+        size_t id_to_run = (params_.low_latency) ? 1 : 2;
+        pc_mutex_.lock();
+        bool has_data = (imu_data_.acc.size() > 0) && (imu_data_.gyr.size() > 0) && (pc_chunk_features_.size() > id_to_run) && (pc_chunks_t_[id_to_run] + scan_period) <= last_time_t;
+        pc_mutex_.unlock();
+        if(has_data)
         {
             StopWatch sw;
             sw.start();
@@ -78,63 +158,430 @@ void LidarOdometry::run()
             sw.stop();
             sw.print("Lidar odometry overall optimisation time");
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(int(kPullPeriod*1000)));
+        else
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(int(kPullPeriod*1000)));
+        }
     }
     std::cout << "Stopping lidar odometry thread" << std::endl;
 }
 
 
-
-
-std::shared_ptr<std::thread> LidarOdometry::runThread()
+double LidarOdometry::nanosToImuTime(const int64_t nanos) const
 {
-    return std::make_shared<std::thread>(&LidarOdometry::run, this);
+    return nanosToSeconds(nanos, imu_time_offset_);
+}
+
+
+void LidarOdometry::splitAndFeatureExtraction(std::shared_ptr<std::vector<Pointd> > pc, const int64_t t)
+{
+    if(pc->size() == 0)
+    {
+        return;
+    }
+
+
+    // Sort the points by time
+    if(params_.unsorted_pc)
+    {
+        std::sort(pc->begin(), pc->end(), [](const Pointd& a, const Pointd& b) { return a.t < b.t; });
+    }
+
+    double threshold = params_.feature_voxel_size;
+    StopWatch sw;
+    sw.start();
+
+    pc_mutex_.lock();
+    bool is_odd = (pc_chunks_.size() % 2 == 1);
+    if((!params_.low_latency) && is_odd)
+    {
+        pc_chunk_features_.push_back(std::make_shared<std::vector<Pointd> >());
+        pc_chunk_features_sparse_.push_back(std::make_shared<std::vector<Pointd> >());
+        pc_chunks_.push_back(pc);
+        pc_chunks_t_.push_back(t);
+        pc_mutex_.unlock();
+        return;
+    }
+    pc_mutex_.unlock();
+
+    // Split the point cloud into channels and remove points too close
+    bool has_channel = pc->at(0).channel != kNoChannel;
+    std::vector<std::vector<Pointd> > channels;
+    if(!has_channel)
+    {
+        throw std::runtime_error("LidarOdometry::extractEdgeFeatures: Point cloud does not have a channel. Current implementation requires point clouds to be split by channel.");
+    }
+    else
+    {
+        StopWatch sw2;
+        sw2.start();
+        channels = splitChannels(*pc, params_.min_range, params_.max_feature_range);
+        sw2.stop();
+        sw2.print("Lidar odometry splitChannels time");
+    }
+
+
+    // Get the median time between points in each channel
+    if(median_dt_ < 0.0)
+    {
+        // Get the median Dt for all channels
+        std::vector<int64_t> dt;
+        for(size_t i = 0; i < channels.size(); ++i)
+        {
+            if(channels[i].size() < 3)
+            {
+                continue;
+            }
+            dt.push_back(getMedianDt(channels[i]));
+        }
+        std::sort(dt.begin(), dt.end());
+        median_dt_ = dt[dt.size()/2];
+        if(median_dt_ <= 0.0)
+        {
+            dt.clear();
+            for(size_t i = 0; i < channels.size(); ++i)
+            {
+                if(channels[i].size() < 3)
+                {
+                    continue;
+                }
+                dt.push_back(getMeanDt(channels[i]));
+            }
+            std::sort(dt.begin(), dt.end());
+            median_dt_ = dt[dt.size()/2];
+
+        }
+        if(median_dt_ <= 0.0)
+        {
+            std::cout << "ERROR !!!!!!!!!!!!!!!!!!!!! LidarOdometry::extractEdgeFeatures: Median dt is zero or negative, cannot compute features." << std::endl;
+            return;
+        }
+    }
+
+
+    std::shared_ptr<std::vector<Pointd> > output(new std::vector<Pointd>());
+    std::shared_ptr<std::vector<Pointd> > downsample(new std::vector<Pointd>());
+    int64_t time_thr = (int64_t)(median_dt_ * 1.5); // 100 times the median dt
+    int64_t time_thr_far = (int64_t)(median_dt_ * 100); // 100 times the median dt
+    double min_range = 1.1* params_.min_range;
+
+    // For each channel, extract the edge features
+    for(size_t i = 0; i < channels.size(); ++i)
+    {
+        if(channels[i].size() < 3)
+        {
+            continue; // Not enough points to extract features
+        }
+
+        std::vector<double> ranges(channels[i].size());
+        for(size_t j = 0; j < channels[i].size(); ++j)
+        {
+            ranges[j] = std::sqrt(channels[i][j].x * channels[i][j].x + 
+                                  channels[i][j].y * channels[i][j].y +
+                                  channels[i][j].z * channels[i][j].z);
+        }
+
+        // Loop through the points in the channel
+        Pointd last_point = channels[i].front();
+        downsample->push_back(last_point);
+        downsample->back().type = 1; // Set the type to 1 (planar)
+        for(size_t j = 1; j < channels[i].size() - 1; ++j)
+        {
+            if(ranges[j] < min_range || ranges[j] > params_.max_feature_range)
+            {
+                continue; // Skip points that are too close
+            }
+
+
+            if(!params_.planar_only)
+            {
+                int64_t dt_1 = channels[i][j].nanos() - channels[i][j-1].nanos();
+                int64_t dt_2 = channels[i][j+1].nanos() - channels[i][j].nanos();
+                if(dt_1 > time_thr && dt_2 > time_thr)
+                {
+                    continue;
+                }
+                double delta_1 = ranges[j] - ranges[j-1];
+                double delta_2 = ranges[j] - ranges[j+1];
+                double min_delta = std::min(std::abs(delta_1), std::abs(delta_2));
+                if(min_delta > threshold)
+                {
+                    continue;
+                }
+                double local_thr = std::max(5*min_delta, threshold);
+                
+                if( (dt_1 < time_thr)
+                        && (std::abs(delta_1) < threshold)
+                        && ((dt_2 > time_thr_far) || (delta_2 < -local_thr)) )
+                {
+                    output->push_back(channels[i][j]);
+                    output->back().type = 2; // Set the type to 2 (edge)
+                    continue;
+                }
+                else if( (dt_2 < time_thr)
+                        && (std::abs(delta_2) < threshold)
+                        && ((dt_1 > time_thr_far) || (delta_1 < -local_thr)) )
+                {
+                    output->push_back(channels[i][j]);
+                    output->back().type = 2; // Set the type to 2 (edge)
+                    continue;
+                }
+            }
+
+            // Check the distance with the last point
+            double distance = std::sqrt(
+                (channels[i][j].x - last_point.x) * (channels[i][j].x - last_point.x) +
+                (channels[i][j].y - last_point.y) * (channels[i][j].y - last_point.y) +
+                (channels[i][j].z - last_point.z) * (channels[i][j].z - last_point.z));
+            double rand_val = ((double) rand() / (RAND_MAX));
+            if(distance > params_.feature_voxel_size*(0.5 + rand_val))
+            //if(distance > params_.feature_voxel_size)
+            {
+                last_point = channels[i][j];
+                downsample->push_back(channels[i][j]);
+                downsample->back().type = 1; // Set the type to 1 (planar)
+            }
+        }
+    }
+
+    *downsample = downsamplePointCloudSubset(*downsample, params_.feature_voxel_size);
+    
+    std::shared_ptr<std::vector<Pointd> > sparse_features(new std::vector<Pointd>());
+    *sparse_features = downsamplePointCloudSubset(*downsample, 2*params_.feature_voxel_size);
+    // Concatenate the edge features to the sparse features
+    if(!params_.planar_only)
+    {
+        std::vector<Pointd> edge_sparse_features = downsamplePointCloudSubset(*output, params_.feature_voxel_size);
+        std::cout << "LidarOdometry::extractFeatures: Edges " << output->size() << ", downsampled " << downsample->size() << ", sparse " << sparse_features->size() << ", edge sparse " << edge_sparse_features.size() << std::endl;
+        sparse_features->insert(sparse_features->end(), edge_sparse_features.begin(), edge_sparse_features.end());
+    }
+
+    // Concatenate the downsampled features and the edge features
+    output->insert(output->end(), downsample->begin(), downsample->end());
+
+
+    sw.stop();
+    sw.print("Lidar odometry feature extraction time");
+    pc_mutex_.lock();
+    if( pc_chunks_t_.size() > 0 
+        && (t <= pc_chunks_t_.back()))
+    {
+        throw std::runtime_error("LidarOdometry::extractEdgeFeatures: New point cloud chunk has a timestamp older than the last one.");
+    }
+    pc_chunk_features_sparse_.push_back(sparse_features);
+    pc_chunk_features_.push_back(output);
+    pc_chunks_.push_back(pc);
+    pc_chunks_t_.push_back(t);
+    pc_mutex_.unlock();
+    std::cout << "Finished feature extraction" << std::endl;
+    return;
 }
 
 
 
 
-void LidarOdometry::stop()
+std::tuple<std::vector<std::shared_ptr<std::vector<Pointd> > >, std::vector<std::shared_ptr<std::vector<Pointd> > >, ugpm::ImuData, int64_t, int64_t> LidarOdometry::getDataForOptimisation()
 {
+    pc_mutex_.lock();
+    int64_t t0 = pc_chunks_t_.at(0);
+    int64_t t1 = pc_chunks_t_.at( (params_.low_latency) ? 1 : 2);
+    // Get the first and third chunks of point clouds as features
+    std::vector<std::shared_ptr<std::vector<Pointd> > > features;
+    std::vector<std::shared_ptr<std::vector<Pointd> > > sparse_features;
+    
+    features.push_back(pc_chunk_features_.at(0));
+    sparse_features.push_back(pc_chunk_features_sparse_.at(0));
+    if(params_.low_latency)
+    {
+        features.push_back(pc_chunk_features_.at(1));
+        sparse_features.push_back(pc_chunk_features_sparse_.at(1));
+    }
+    else
+    {
+        features.push_back(pc_chunk_features_.at(2));
+        sparse_features.push_back(pc_chunk_features_sparse_.at(2));
+    }
+    if(features.at(0)->size() == 0 || features.at(1)->size() == 0)
+    {
+        throw std::runtime_error("LidarOdometry::getDataForOptimisation: No features available for optimisation.");
+    }
+    pc_mutex_.unlock();
+
+    // Only get the data from the IMU that is relevant for the optimisation
     mutex_.lock();
-    running_ = false;
+    int64_t margin = (int64_t)(scan_time_sum_ / (2*scan_count_));
     mutex_.unlock();
+    imu_mutex_.lock();
+    ugpm::ImuData imu_data = imu_data_.get(nanosToImuTime(t0 - margin), std::min(std::max(imu_data_.acc.back().t, imu_data_.gyr.back().t), nanosToImuTime(t1 + 3*margin)));
+    imu_mutex_.unlock();
+
+
+    return {features, sparse_features, imu_data, t0, t1};
 }
 
 
 
 
-LidarOdometry::LidarOdometry(const LidarOdometryParams& params, LidarOdometryNode* node)
-    : params_(params)
-    , node_(node)
-    , output_slots_(3, true)
+
+void LidarOdometry::optimise()
+{   
+    std::cout << "LidarOdometry::optimise" << std::endl;
+
+    StopWatch sw;
+    sw.start();
+
+    // Get the data for optimisation
+    auto [features, sparse_features, imu_data, t0, t1] = getDataForOptimisation();
+
+
+    State state(imu_data, nanosToImuTime(t0), params_.state_frequency);
+
+    // Initialize the state on the first optimisation
+    if(first_optimisation_)
+    {
+        initState(imu_data);
+        current_time_ = t0;
+    }
+    else
+    {
+        updateCurrentPose(t0, t1);
+    }
+
+
+    sw.stop();
+    sw.print("Precomputations: ");
+
+
+    sw.reset();
+    sw.start();
+
+    std::set<int> types = kTypes;
+    if(params_.planar_only)
+    {
+        types = {1};
+    }
+    // Create the problem and optimise
+    if(first_optimisation_)
+    {
+        double save_max_feature_dist = params_.max_feature_dist;
+        ceres::LossFunction* save_loss_function = loss_function_;
+        params_.max_feature_dist = 5.0;
+        loss_function_ = new ceres::CauchyLoss(5.0);
+        createProblemAssociateAndOptimise(features, sparse_features, state, types, 5, true);
+        createProblemAssociateAndOptimise(features, sparse_features, state, types, 5, true);
+        createProblemAssociateAndOptimise(features, sparse_features, state, types, 5, true);
+        createProblemAssociateAndOptimise(features, sparse_features, state, types, 5, true);
+        createProblemAssociateAndOptimise(features, sparse_features, state, types, 5, true);
+        createProblemAssociateAndOptimise(features, sparse_features, state, types, 5, true);
+        params_.max_feature_dist = save_max_feature_dist;
+        delete loss_function_;
+        loss_function_ = save_loss_function;
+    }
+
+    createProblemAssociateAndOptimise(features, sparse_features, state, types, 25);
+
+    publishResults(state);
+
+    printState();
+    logState();
+
+    prepareNextState(state);
+
+    sw.stop();
+    sw.print("Optimisation and launch publisher: ");
+
+    
+    first_optimisation_ = false;
+}
+
+
+void LidarOdometry::initState(const ugpm::ImuData& imu_data)
 {
-    std::cout << "LidarOdometry constructor" << std::endl;
+    // Create the state times and the K_inv matrix
+    Vec3 acc_temp;
+    acc_temp[0] = imu_data.acc[0].data[0];
+    acc_temp[1] = imu_data.acc[0].data[1];
+    acc_temp[2] = imu_data.acc[0].data[2];
 
-    state_period_ = 1.0/params_.state_frequency;
-    state_frequency_ = params_.state_frequency;
+    acc_temp.normalize();
+    acc_temp *= -params_.g;
 
-    state_blocks_.resize(4, Vec3::Zero());
+    state_blocks_[2] = acc_temp;
 
-    current_pos_ = Vec3::Zero();
-    current_rot_ = Vec3::Zero();
-
-    Vec3 temp;
-    temp << params_.calib_rx, params_.calib_ry, params_.calib_rz;
-    ceres::AngleAxisToQuaternion<double>(temp.data(), state_calib_.data());
-
-    state_calib_[4] = params_.calib_px;
-    state_calib_[5] = params_.calib_py;
-    state_calib_[6] = params_.calib_pz;
-
-    loss_function_ = new ceres::CauchyLoss(1.0);
-
-    imu_data_.acc_var = params_.acc_std*params_.acc_std;
-    imu_data_.gyr_var = params_.gyr_std*params_.gyr_std;
-
-    lidar_weight_ = 1.0/params_.lidar_std;
 }
 
+
+
+std::vector<DataAssociation> LidarOdometry::createProblemAssociateAndOptimise(
+        const std::vector<std::shared_ptr<std::vector<Pointd> > >& pts
+        , const std::vector<std::shared_ptr<std::vector<Pointd> > >& sparse_pts
+        , const State& state
+        , const std::set<int>& types
+        , const int nb_iter
+        , bool vel_only)
+{
+    StopWatch sw;
+    sw.start();
+
+
+    // Perform the optimisation
+    ceres::Solver::Options options;
+    options.minimizer_progress_to_stdout = false;
+    options.max_num_iterations = nb_iter;
+    options.num_threads = 8;
+    options.linear_solver_type = ceres::DENSE_NORMAL_CHOLESKY;
+    options.function_tolerance = 1e-4;
+
+
+    // Project the features to the state times
+    std::vector<std::shared_ptr<std::vector<Pointd> > > projected_features = projectPoints(
+        pts,
+        state,
+        state_blocks_,
+        time_offset_,
+        state_calib_);
+    std::vector<std::shared_ptr<std::vector<Pointd> > > projected_sparse_features = projectPoints(
+        sparse_pts,
+        state,
+        state_blocks_,
+        time_offset_,
+        state_calib_);
+    sw.stop();
+    sw.print("Projection of the features: ");
+
+
+
+    sw.reset();
+    sw.start();
+    std::vector<DataAssociation> data_associations = getDataAssociations(types, projected_features, projected_sparse_features);
+    sw.stop();
+    sw.print("Data association time: ");
+
+
+    ceres::Problem::Options pb_options;
+    pb_options.loss_function_ownership = ceres::DO_NOT_TAKE_OWNERSHIP;
+
+    ceres::Problem problem(pb_options);
+    addBlocks(problem, vel_only);
+    addLidarResiduals(problem, data_associations, pts, sparse_pts, state);
+
+    ZeroPrior* prior = new ZeroPrior(3, 1.0);
+    problem.AddResidualBlock(prior, NULL, state_blocks_[0].data());
+    
+    sw.reset();
+    sw.start();
+
+    // Solve the problem
+    ceres::Solver::Summary summary;
+    ceres::Solve(options, &problem, &summary);
+    std::cout << summary.BriefReport() << std::endl;
+
+    sw.stop();
+    sw.print("Ceres solver time: ");
+
+
+    return data_associations;
+}
 
 
 
@@ -145,29 +592,32 @@ std::vector<std::shared_ptr<std::vector<Pointd> > > LidarOdometry::projectPoints
         const double time_offset,
         const Vec7& state_calib) const
 {
+    // Prepare the output vector
     std::vector<std::shared_ptr<std::vector<Pointd> > > output(pts.size());
 
+    // Convert the extrinsic calibration state to R and t
+    Mat3 R_calib;
+    ceres::QuaternionToRotation<double>(state_calib.data(), R_calib.data());
+    Vec3 t_calib = state_calib.segment<3>(4);
+
+    // Project each point cloud to the state times
     for(size_t i = 0; i < pts.size(); ++i)
     {
         output[i] = std::make_shared<std::vector<Pointd> >();
         output[i]->resize(pts[i]->size());
 
-        Mat3 R_calib;
-        ceres::QuaternionToRotation<double>(state_calib.data(), R_calib.data());
-        Vec3 t_calib = state_calib.segment<3>(4);
-
+        // Collect the point times to perform a single query to the state
         std::vector<double> temp_times;
         temp_times.reserve(pts[i]->size());
         for(size_t j = 0; j < pts[i]->size(); ++j)
         {
-            temp_times.push_back(pts[i]->at(j).t);
+            temp_times.push_back(nanosToImuTime(pts[i]->at(j).t));
         }
-        std::vector<std::pair<Vec3, Vec3>> poses = state.query(temp_times, state_blocks[0], state_blocks[1], state_blocks[2], state_blocks[3], time_offset);
+        std::vector<std::pair<Vec3, Vec3>> poses = state.queryApprox(temp_times, state_blocks[0], state_blocks[1], state_blocks[2], state_blocks[3], time_offset);
 
-        //#pragma omp parallel for
+        // Apply the transformations to each point
         for(size_t j = 0; j < pts[i]->size(); ++j)
         {
-            //auto [pos, rot] = state.query(pts[i]->at(j).t, state_blocks[0], state_blocks[1], state_blocks[2], state_blocks[3], time_offset);
             Vec3& pos = poses[j].first;
             Vec3& rot = poses[j].second;
 
@@ -177,41 +627,310 @@ std::vector<std::shared_ptr<std::vector<Pointd> > > LidarOdometry::projectPoints
             ceres::AngleAxisRotatePoint<double>(rot.data(), p_I.data(), p_W.data());
             p_W += pos;
 
-            output[i]->at(j) = Pointd(p_W, pts[i]->at(j).t, pts[i]->at(j).i, pts[i]->at(j).channel, pts[i]->at(j).type, pts[i]->at(j).scan_id, pts[i]->at(j).dynamic);
-
+            output[i]->at(j) = Pointd(p_W, pts[i]->at(j).t, pts[i]->at(j).i, pts[i]->at(j).channel, pts[i]->at(j).type);
         }
     }
     return output;
 }
 
 
-std::vector<std::shared_ptr<std::vector<Pointd> > > LidarOdometry::projectPoints(
-        const std::vector<std::shared_ptr<std::vector<Pointd> > >& pts,
-        const Vec3& pos,
-        const Vec3& rot)
+
+std::vector<DataAssociation> LidarOdometry::getDataAssociations(
+        const std::set<int>& types
+        , const std::vector<std::shared_ptr<std::vector<Pointd> > >& pts
+        , const std::vector<std::shared_ptr<std::vector<Pointd> > >& sparse_pts)
 {
-    std::vector<std::shared_ptr<std::vector<Pointd> > > output(pts.size());
+    // Prepare the output vector and precompute the maximum distance parameter
+    std::vector<DataAssociation> data_associations;
+    
+    std::shared_ptr<std::vector<Pointd> > source_features = sparse_pts.back();
+    std::shared_ptr<std::vector<Pointd> > target_features = pts.front();
+    int target_id = 0;
+    int pc_id = pts.size() - 1;
+    data_associations.reserve(source_features->size());
 
-    for(size_t i = 0; i < pts.size(); ++i)
+    // Precompute the maximum distance parameter
+    double max_dist2 = params_.max_feature_dist*params_.max_feature_dist;
+
+    // Create the kd tree for each feature type
+    std::vector<std::shared_ptr<KDTree3Simple>> feature_kd_trees;
+    std::map<int, int> tree_types;
+    int counter = 0;
+    for(const auto type: types)
     {
-        output[i] = std::make_shared<std::vector<Pointd> >();
-        output[i]->resize(pts[i]->size());
-        #pragma omp parallel for
-        for(size_t j = 0; j < pts[i]->size(); ++j)
+        tree_types[type] = counter;
+        feature_kd_trees.push_back(std::make_shared<KDTree3Simple>());
+        counter++;
+    }
+
+    // Do the kd tree creation in parallel threads
+    std::vector<std::thread> threads;
+    // Anonymous function to create a kd tree for a given type
+    auto createKdTree = [&](int type, std::shared_ptr<KDTree3Simple> tree, std::shared_ptr<std::vector<Pointd> > features)
+    {
+        for(size_t j = 0; j < features->size(); ++j)
         {
-            Vec3 p_L = pts[i]->at(j).vec3();
-            Vec3 p_W;
-            ceres::AngleAxisRotatePoint<double>(rot.data(), p_L.data(), p_W.data());
-            p_W += pos;
-
-            output[i]->at(j) = Pointd(p_W, pts[i]->at(j).t, pts[i]->at(j).i, pts[i]->at(j).channel, pts[i]->at(j).type, pts[i]->at(j).scan_id, pts[i]->at(j).dynamic);
-
+            if(features->at(j).type == type)
+            {
+                Vec3f p = features->at(j).vec3f();
+                tree->addPoint({p[0], p[1], p[2]}, j);
+            }
+        }
+    };
+    // Launch the threads
+    for(const auto type: types)
+    {
+        if(type != 3)
+        {
+            threads.push_back(std::thread(createKdTree, type, feature_kd_trees[tree_types[type]], target_features));
         }
     }
-    return output;
+    // Join the threads
+    for(auto& thread: threads)
+    {
+        thread.join();
+    }
+
+
+    std::map<int, std::vector<std::vector<int>>> temp_type_to_ids;
+    std::map<int, std::vector<int>> source_downsampled_ids;
+    for(size_t i = 0; i < source_features->size(); ++i)
+    {
+        if(types.find(source_features->at(i).type) == types.end())
+        {
+            continue;
+        }
+        if(temp_type_to_ids.find(source_features->at(i).type) == temp_type_to_ids.end())
+        {
+            temp_type_to_ids[source_features->at(i).type] = std::vector<std::vector<int>>(8);
+            source_downsampled_ids[source_features->at(i).type] = std::vector<int>();
+        }
+        Vec3 p = source_features->at(i).vec3();
+        int quadrant = (p[0] >= 0)*4 + (p[1] >= 0)*2 + (p[2] >= 0);
+        temp_type_to_ids[source_features->at(i).type][quadrant].push_back(i);
+    }
+
+    // Sort the by number of points in each quadrant
+    for(auto& [type, ids]: temp_type_to_ids)
+    {
+        std::sort(ids.begin(), ids.end(), [](const std::vector<int>& a, const std::vector<int>& b) { return a.size() > b.size(); });
+    }
+
+
+    // For each type, cap the number of associations to 2*params_.max_associations_per_type
+    for(const auto& [type, quadrants]: temp_type_to_ids)
+    {
+        for(size_t i = 0; i < quadrants.size(); i++)
+        {
+            int cap = std::ceil(2*params_.max_associations_per_type - source_downsampled_ids[type].size()) / (quadrants.size() - i);
+            if(cap <= 0)
+                break;
+            if(quadrants[i].size() > (size_t)(cap))
+            {
+                std::vector<int> sampled_ids;
+                sampled_ids.reserve(cap);
+                std::sample(quadrants[i].begin(), quadrants[i].end(), std::back_inserter(sampled_ids), cap, std::mt19937{std::random_device{}()});
+                source_downsampled_ids[type].insert(source_downsampled_ids[type].end(), sampled_ids.begin(), sampled_ids.end());
+            }
+            else
+            {
+                source_downsampled_ids[type].insert(source_downsampled_ids[type].end(), quadrants[i].begin(), quadrants[i].end());
+            }
+        }
+    }
+    
+
+    
+    // Create a hashmap to store the previous associations
+    std::map<int, std::vector<DataAssociation>> associations_per_type;
+    for(const auto& type: types)
+    {
+        associations_per_type[type] = std::vector<DataAssociation>();
+    }
+    // Anonymous function to find the associations for a given type
+    auto findAssociations = [&](int type, const std::vector<int>& ids, int pc_id, int target_id, std::vector<DataAssociation>& associations, KDTree3Simple& tree, std::shared_ptr<std::vector<Pointd> > source, std::shared_ptr<std::vector<Pointd> > target)
+    {
+        for(size_t i = 0; i < ids.size(); ++i)
+        {
+            Vec3 temp_feature = source->at(ids[i]).vec3();
+
+            if(type == 1)
+            {
+                auto nn = tree.searchCapacityLimitedBall({temp_feature(0), temp_feature(1), temp_feature(2)}, max_dist2, 6);
+
+                if(nn.size() < 3)
+                    continue;
+
+
+                int target_feature_id = nn[0].payload;
+
+                Vec3 candidate_1 = target->at(target_feature_id).vec3();
+                int candidate_2_id = 1;
+                // Get the second cadidate with at distance greater that params_.min_feature_dist between the first and the second
+
+
+                while(((size_t)(candidate_2_id) < nn.size())&&
+                    ((candidate_1 - target->at(nn[candidate_2_id].payload).vec3()).norm() < params_.min_feature_dist))
+                {
+                    candidate_2_id++;
+                }
+
+                if((size_t)(candidate_2_id) >= nn.size())
+                    continue;
+
+
+                int candidate_3_id = candidate_2_id + 1;
+                Vec3 candidate_2 = target->at(nn[candidate_2_id].payload).vec3();
+
+                Vec3 v1 = candidate_2 - candidate_1;
+                v1.normalize();
+                // Get the third candidate with at distance greater that params_.min_feature_dist between to the first, the second and the third, also check that the three points are not aligned
+                while(((size_t)(candidate_3_id) < nn.size())&&
+                    ((candidate_1 - target->at(nn[candidate_3_id].payload).vec3()).norm() < params_.min_feature_dist)&&
+                    ((candidate_2 - target->at(nn[candidate_3_id].payload).vec3()).norm() < params_.min_feature_dist)&&
+                    (std::abs(v1.dot((target->at(nn[candidate_3_id].payload).vec3() - candidate_2).normalized())) > 0.2))
+                {
+                    candidate_3_id++;
+                }
+
+                if((size_t)(candidate_3_id) < nn.size())
+                {
+                    DataAssociation data_association;
+                    data_association.pc_id = pc_id;
+                    data_association.feature_id = ids[i];
+                    data_association.type = type;
+                    data_association.target_ids.push_back(std::make_pair(target_id, nn[0].payload));
+                    data_association.target_ids.push_back(std::make_pair(target_id, nn[candidate_2_id].payload));
+                    data_association.target_ids.push_back(std::make_pair(target_id, nn[candidate_3_id].payload));
+
+                    associations.push_back(data_association);
+                }
+
+            }
+            else if((type == 2))
+            {
+                auto nn = tree.searchCapacityLimitedBall({temp_feature(0), temp_feature(1), temp_feature(2)}, max_dist2, 5);
+
+                if(nn.size() < 2) 
+                    continue;
+
+
+                int target_feature_id = nn[0].payload;
+
+                Vec3 candidate_1 = target->at(target_feature_id).vec3();
+                int candidate_2_id = 1;
+                // Get the second cadidate with at distance greater that params_.min_feature_dist between the first and the second
+
+
+                while(((size_t)(candidate_2_id) < nn.size())&&
+                    ((candidate_1 - target->at(nn[candidate_2_id].payload).vec3()).norm() < params_.min_feature_dist))
+                {
+                    candidate_2_id++;
+                }
+
+                if((size_t)(candidate_2_id) < nn.size())
+                {
+                    DataAssociation data_association;
+                    data_association.pc_id = pc_id;
+                    data_association.feature_id = ids[i];
+                    data_association.type = type;
+                    data_association.target_ids.push_back(std::make_pair(target_id, nn[0].payload));
+                    data_association.target_ids.push_back(std::make_pair(target_id, nn[candidate_2_id].payload));
+                    associations.push_back(data_association);
+                }
+            }
+        }
+    };
+
+    // Launch the threads to find the associations for each type
+    std::vector<std::thread> assoc_threads;
+    for(const auto& [type, ids]: source_downsampled_ids)
+    {
+        if(feature_kd_trees[tree_types[type]]->size() == 0)
+            continue;
+        assoc_threads.push_back(std::thread(findAssociations, type, ids, pc_id, target_id, std::ref(associations_per_type[type]), std::ref(*(feature_kd_trees[tree_types[type]])), source_features, target_features));
+    }
+    // Join the threads
+    for(auto& thread: assoc_threads)
+    {
+        thread.join();
+    }
+
+
+    for(const auto& pair: associations_per_type)
+    {
+        int type = pair.first;
+        const auto& assocs = pair.second;
+
+        std::cout << "Type " << type << ": " << assocs.size() << " associations before capping." << std::endl;
+        if(assocs.size() > params_.max_associations_per_type)
+        {
+            std::vector<size_t> indices(assocs.size());
+            std::iota(indices.begin(), indices.end(), 0);
+            std::shuffle(indices.begin(), indices.end(), std::mt19937{std::random_device{}()});
+            for(size_t i = 0; i < params_.max_associations_per_type; ++i)
+            {
+                data_associations.push_back(assocs[indices[i]]);
+            }
+        }
+        else
+        {
+            data_associations.insert(data_associations.end(), assocs.begin(), assocs.end());
+        }
+    }
+
+    std::cout << "LidarOdometry::getDataAssociations: associations found: " << data_associations.size() << " over " << source_features->size() << " features." << std::endl;
+
+    return data_associations;
 }
 
 
+
+
+
+
+void LidarOdometry::addBlocks(ceres::Problem& problem, bool vel_only)
+{
+    // Add the state variables
+    problem.AddParameterBlock(state_blocks_[0].data(), 3);
+    problem.AddParameterBlock(state_blocks_[1].data(), 3);
+    ceres::SphereManifold<3>* sphere = new ceres::SphereManifold<3>();
+    problem.AddParameterBlock(state_blocks_[2].data(), 3, sphere);
+
+    problem.AddParameterBlock(state_blocks_[3].data(), 3);
+    problem.AddParameterBlock(&time_offset_, 1);
+
+    problem.SetParameterBlockConstant(&time_offset_);
+
+    if(vel_only)
+    {
+        problem.SetParameterBlockConstant(state_blocks_[0].data());
+        problem.SetParameterBlockConstant(state_blocks_[1].data());
+        problem.SetParameterBlockConstant(state_blocks_[2].data());
+    }
+}
+
+
+
+void LidarOdometry::addLidarResiduals(ceres::Problem& problem
+        , const std::vector<DataAssociation>& data_associations
+        , const std::vector<std::shared_ptr<std::vector<Pointd> > >& pts
+        , const std::vector<std::shared_ptr<std::vector<Pointd> > >& sparse_pts
+        , const State& state
+        )
+{
+    // Add the residuals
+    std::cout << "Adding " << data_associations.size() << " lidar residuals" << std::endl;
+
+
+    for(size_t i = 0; i < data_associations.size(); ++i)
+    {
+        LidarNoCalCostFunction* cost_function = new LidarNoCalCostFunction(state, data_associations[i], pts, sparse_pts, lidar_weight_, imu_time_offset_, state_calib_);
+
+        problem.AddResidualBlock(cost_function, loss_function_, state_blocks_[0].data(), state_blocks_[1].data(), state_blocks_[2].data(), state_blocks_[3].data(), &time_offset_);
+    }
+
+}
 
 
 
@@ -228,933 +947,259 @@ void LidarOdometry::printState()
     std::cout << "    calib: " << state_calib_.transpose() << std::endl;
 }
 
-
-
-
-
-
-std::vector<DataAssociation> LidarOdometry::findDataAssociations(
-    const std::set<int>& types,
-    const std::shared_ptr<std::vector<Pointd> >& features,
-    const int pc_id,
-    const std::vector<std::shared_ptr<std::vector<Pointd> > >& targets,
-    const std::vector<int>& target_ids)
+void LidarOdometry::logState()
 {
+    std::string log_path = "/home/ced/ros2_ws/install/ffastllamaa/share/ffastllamaa/maps/lidar_odometry_state.csv";
 
-    std::vector<DataAssociation> data_associations;
-    double max_dist2 = params_.max_feature_dist*params_.max_feature_dist;
-
-    // Create the kd tree for each feature type
-    std::vector<std::shared_ptr<KDTree3>> feature_kd_trees;
-    std::map<int, int> tree_types;
-    int counter = 0;
-    for(const auto type: types)
+    std::ofstream log_file;
+    if(first_optimisation_)
     {
-        tree_types[type] = counter;
-        feature_kd_trees.push_back(std::make_shared<KDTree3>());
-        counter++;
-    }
-    for(size_t i = 0; i < targets.size(); ++i)
-    {
-        for(size_t j = 0; j < targets[i]->size(); ++j)
-        {
-            if(targets[i]->at(j).type != 3)
-            {
-                Vec3f p = targets[i]->at(j).vec3f();
-                feature_kd_trees[tree_types[targets[i]->at(j).type]]->addPoint({p[0], p[1], p[2]}, {i, j});
-            }
-        }
-    }
-
-                    
-
-    std::vector<bool> valid = std::vector<bool>(features->size(), false);
-    std::vector<DataAssociation> association_candidates(features->size());
-
-    for(size_t i = 0; i < features->size(); ++i)
-    {
-        int type = features->at(i).type;
-        if(feature_kd_trees[tree_types[type]]->size() == 0)
-            continue;
-
-        int tree_id = tree_types[type];
-        KDTree3& tree = *(feature_kd_trees.at(tree_id));
-        Vec3f temp_feature = features->at(i).vec3f();
-
-
-        // Plannar Look for the 3 closest point, making sure they are not aligned
-        if(type == 1)
-        {
-            auto nn = tree.searchCapacityLimitedBall({temp_feature(0), temp_feature(1), temp_feature(2)}, max_dist2, 6);
-
-            if(nn.size() < 3)
-                continue;
-
-
-            int target_id = nn[0].payload.first;
-            int target_feature_id = nn[0].payload.second;
-
-            Vec3f candidate_1 = targets[target_id]->at(target_feature_id).vec3f();
-            int candidate_2_id = 1;
-            // Get the second cadidate with at distance greater that params_.min_feature_dist between the first and the second
-
-
-            while(((size_t)(candidate_2_id) < nn.size())&&
-                ((candidate_1 - targets[nn[candidate_2_id].payload.first]->at(nn[candidate_2_id].payload.second).vec3f()).norm() < params_.min_feature_dist))
-            {
-                candidate_2_id++;
-            }
-
-            if((size_t)(candidate_2_id) >= nn.size())
-                continue;
-
-
-            int candidate_3_id = candidate_2_id + 1;
-            Vec3f candidate_2 = targets[nn[candidate_2_id].payload.first]->at(nn[candidate_2_id].payload.second).vec3f();
-
-            Vec3f v1 = candidate_2 - candidate_1;
-            v1.normalize();
-            // Get the third candidate with at distance greater that params_.min_feature_dist between the the first, the second and the third, also check that the three points are not aligned
-            while(((size_t)(candidate_3_id) < nn.size())&&
-                ((candidate_1 - targets[nn[candidate_3_id].payload.first]->at(nn[candidate_3_id].payload.second).vec3f()).norm() < params_.min_feature_dist)&&
-                ((candidate_2 - targets[nn[candidate_3_id].payload.first]->at(nn[candidate_3_id].payload.second).vec3f()).norm() < params_.min_feature_dist)&&
-                (std::abs(v1.dot((targets[nn[candidate_3_id].payload.first]->at(nn[candidate_3_id].payload.second).vec3f() - candidate_2).normalized())) > 0.4))
-            {
-                candidate_3_id++;
-            }
-
-            if((size_t)(candidate_3_id) < nn.size())
-            {
-                DataAssociation data_association;
-                data_association.pc_id = pc_id;
-                data_association.feature_id = i;
-                data_association.type = type;
-                data_association.target_ids.push_back(std::make_pair(target_ids[nn[0].payload.first], nn[0].payload.second));
-                data_association.target_ids.push_back(std::make_pair(target_ids[nn[candidate_2_id].payload.first], nn[candidate_2_id].payload.second));
-                data_association.target_ids.push_back(std::make_pair(target_ids[nn[candidate_3_id].payload.first], nn[candidate_3_id].payload.second));
-                valid[i] = true;
-                association_candidates[i] = data_association;
-            }
-
-        }
-        else if((type == 2))
-        {
-            auto nn = tree.searchCapacityLimitedBall({temp_feature(0), temp_feature(1), temp_feature(2)}, max_dist2, 5);
-
-            if(nn.size() < 2) 
-                continue;
-
-
-            int target_id = nn[0].payload.first;
-            int target_feature_id = nn[0].payload.second;
-
-            Vec3f candidate_1 = targets[target_id]->at(target_feature_id).vec3f();
-            int candidate_2_id = 1; 
-            // Get the second cadidate with at distance greater that params_.min_feature_dist between t  he first and the second
-
-
-            while(((size_t)(candidate_2_id) < nn.size())&&
-                ((candidate_1 - targets[nn[candidate_2_id].payload.first]->at(nn[candidate_2_id].payload.second).vec3f()).norm() < params_.min_feature_dist))
-            {
-                candidate_2_id++;
-            }
-
-            if((size_t)(candidate_2_id) < nn.size())
-            {
-                DataAssociation data_association;
-                data_association.pc_id = pc_id;
-                data_association.feature_id = i; 
-                data_association.type = type;
-                data_association.target_ids.push_back(std::make_pair(target_ids[nn[0].payload.first], nn[0].payload.second));
-                data_association.target_ids.push_back(std::make_pair(target_ids[nn[candidate_2_id].payload.first], nn[candidate_2_id].payload.second));
-                valid[i] = true;
-                association_candidates[i] = data_association;
-            }
-        }
-    }
-
-
-    for(size_t i = 0; i < features->size(); ++i)
-    {
-        if(valid[i])
-        {
-            data_associations.push_back(association_candidates[i]);
-        }
-    }
-
-    return data_associations;
-}
-
-
-
-
-void LidarOdometry::visualiseDataAssociation(const std::vector<DataAssociation>& data_association)
-{
-    // Visualise the data association with cilantro
-    std::vector<Eigen::Vector3f> points;
-    std::vector<Eigen::Vector3f> colors;
-    std::vector<Eigen::Vector3f> pc_colors;
-    pc_colors.push_back(Eigen::Vector3f(0.0, 0.0, 0.0));
-    pc_colors.push_back(Eigen::Vector3f(1.0, 0.0, 0.0));
-    pc_colors.push_back(Eigen::Vector3f(0.0, 1.0, 0.0));
-    pc_colors.push_back(Eigen::Vector3f(0.0, 0.0, 1.0));
-    std::vector<Eigen::Vector3f> target_colors;
-    target_colors.push_back(Eigen::Vector3f(0.0, 0.0, 0.0));
-    target_colors.push_back(Eigen::Vector3f(0.5, 0.0, 0.0));
-    target_colors.push_back(Eigen::Vector3f(0.0, 0.5, 0.0));
-    target_colors.push_back(Eigen::Vector3f(0.0, 0.0, 0.5));
-    std::vector<Eigen::Vector3f> points_asso_1;
-    std::vector<Eigen::Vector3f> points_asso_2;
-    for(size_t i = 0; i < data_association.size(); ++i)
-    {
-        points.push_back(features_[data_association[i].pc_id]->at(data_association[i].feature_id).vec3f());
-        if((size_t)(data_association[i].type) < pc_colors.size())
-            colors.push_back(Eigen::Vector3f(1.0, 0.0, 0.0));
-        else
-            colors.push_back(Eigen::Vector3f(0.5, 0.5, 0.5));
-
-        for(size_t j = 0; j < data_association[i].target_ids.size(); ++j)
-        {
-            points_asso_1.push_back(features_[data_association[i].target_ids[j].first]->at(data_association[i].target_ids[j].second).vec3f());
-            points_asso_2.push_back(features_[data_association[i].pc_id]->at(data_association[i].feature_id).vec3f());
-
-            points.push_back(features_[data_association[i].target_ids[j].first]->at(data_association[i].target_ids[j].second).vec3f());
-            if((size_t)(data_association[i].type) < target_colors.size())
-                colors.push_back(target_colors[data_association[i].type]);
-            else
-                colors.push_back(Eigen::Vector3f(0.5, 0.5, 0.5));
-        }
-    }
-
-    //cilantro::PointCloud3f points_cloud;
-    //points_cloud.points.resize(3,points.size()); 
-    //points_cloud.colors.resize(3,points.size());
-    //for(int i = 0; i < points.size(); ++i)
-    //{
-    //    points_cloud.points.col(i) = points[i];
-    //    points_cloud.colors.col(i) = colors[i];
-    //}
-
-    //pangolin::CreateWindowAndBind(window_name, 640, 480);
-    //cilantro::Visualizer viz(window_name, "disp1");
-    //viz.addObject<cilantro::PointCloudRenderable>("points", points_cloud);
-    //viz.addObject<cilantro::PointCorrespondencesRenderable>("correspondences", points_asso_1, points_asso_2);
-
-
-    //while(!viz.wasStopped())
-    //{
-    //    viz.spinOnce();
-    //}
-    
-
-
-
-
-
-}
-
-
-
-
-void LidarOdometry::visualisePoints(const std::vector<std::shared_ptr<std::vector<Pointd> > >& points)
-{
-    std::vector<Eigen::Vector3f> points_vec;
-    for(size_t i = 0; i < points.size(); ++i)
-    {
-        for(size_t j = 0; j < points[i]->size(); ++j)
-        {
-            points_vec.push_back(points[i]->at(j).vec3f());
-        }
-    }
-
-    //cilantro::PointCloud3f points_cloud;
-    //points_cloud.points.resize(3,points_vec.size());
-    //for(int i = 0; i < points_vec.size(); ++i)
-    //{
-    //    points_cloud.points.col(i) = points_vec[i];
-    //}
-
-    //pangolin::CreateWindowAndBind(window_name, 640, 480);
-    //cilantro::Visualizer viz(window_name, "disp1");
-    //viz.addObject<cilantro::PointCloudRenderable>("points", points_cloud);
-
-    //// Add axis
-    //viz.addObject<cilantro::CoordinateFrameRenderable>("axis", Eigen::Matrix4f::Identity(), 1.0f,
-    //  cilantro::RenderingProperties().setLineWidth(5.0f));
-    //while(!viz.wasStopped())
-    //{
-    //    viz.spinOnce();
-    //}
-
-}
-
-
-
-
-std::tuple<std::vector<std::shared_ptr<std::vector<Pointd> > >, ugpm::ImuData> LidarOdometry::getDataForOptimisation()
-{
-    // Copy the data to let the other threads continue
-    mutex_.lock();
-    std::vector<std::shared_ptr<std::vector<Pointd> > > features;
-    for(int i = 0; i < params_.nb_scans_per_submap; ++i)
-    {
-        features.push_back(features_[i]);
-    }
-    ugpm::ImuData imu_data = imu_data_.get(pc_t_[0] - state_period_, std::max(imu_data_.acc.back().t, imu_data_.gyr.back().t));
-    mutex_.unlock();
-
-    return {features, imu_data};
-}
-
-
-
-
-void LidarOdometry::initState(const ugpm::ImuData& imu_data)
-{
-    // Create the state times and the K_inv matrix
-    Vec3 acc_temp;
-    acc_temp[0] = imu_data.acc[0].data[0];
-    acc_temp[1] = imu_data.acc[0].data[1];
-    acc_temp[2] = imu_data.acc[0].data[2];
-
-    acc_temp.normalize();
-    acc_temp *= -params_.g;
-
-    state_blocks_[2] = acc_temp;
-}
-
-
-
-
-std::vector<DataAssociation> LidarOdometry::getAllAssociations(
-        const std::set<int>& types
-        , const std::vector<std::shared_ptr<std::vector<Pointd> > >& pts)
-{
-
-    std::vector<DataAssociation> data_associations;
-    {
-        std::vector<int> target_ids(1, 0);
-        std::vector<std::shared_ptr<std::vector<Pointd> > > target_features(1, pts[0]);
-        std::vector<DataAssociation> temp_data_associations = findDataAssociations(types, pts.back(), pts.size()-1, target_features, target_ids);
-
-        data_associations_save_.push_back(temp_data_associations);
-
-        data_associations.insert(data_associations.end(), temp_data_associations.begin(), temp_data_associations.end());
-
-    }
-    //// If first scan, look for associations from 0, if not, look from 1
-    //int start_id = 0;
-    //std::cout << " Get all associations, first_optimisation_ " << first_optimisation_ << std::endl;
-    //if(!first_optimisation_)
-    //{
-    //    start_id = pts.size()-2;
-    //}
-    //else
-    //{
-    //    for(int i = 0; i < data_associations_save_.size(); ++i)
-    //    {
-    //        for(int j = 0; j < data_associations_save_[i].size(); ++j)
-    //        {
-    //            data_associations.push_back(data_associations_save_[i][j]);
-    //        }
-    //        
-    //    }
-    //}
-    //for(int i = start_id; i < pts.size()-1; ++i)
-    //{
-    //    std::cout << "Get all associations, new associations i " << i << std::endl;
-    //    std::vector<int> target_ids(1, i+1);
-    //    std::vector<std::shared_ptr<std::vector<Point> > > target_features(1, pts[i+1]);
-    //    std::vector<DataAssociation> temp_data_associations = findDataAssociations(types, pts[i], i, target_features, target_ids);
-
-    //    data_associations_save_.push_back(temp_data_associations);
-
-    //    data_associations.insert(data_associations.end(), temp_data_associations.begin(), temp_data_associations.end());
-
-    //}
-
-    //if(!first_optimisation_)
-    //{
-    //    std::cout << "Removing first entry in data_associations_save_" << std::endl;
-    //    std::cout << "data_associations_save_ size " << data_associations_save_.size() << std::endl;
-
-    //    // Remove the first entry in data_associations_save_
-    //    if(data_associations_save_.size() > 1)
-    //    {
-    //        data_associations_save_.erase(data_associations_save_.begin());
-    //    }
-    //    for(auto& v_asso : data_associations_save_)
-    //    {
-    //        for(auto& asso : v_asso)
-    //        {
-    //            // Remove 1 to all the pc_ids
-    //            asso.pc_id--;
-    //            for(int i = 0; i < asso.target_ids.size(); ++i)
-    //            {
-    //                asso.target_ids[i].first--;
-    //            }
-    //        }
-    //    }
-    //}
-    //else
-    //{
-    //    data_associations_save_.clear();
-    //}
-
-
-    return data_associations;
-}
-
-
-
-
-
-std::vector<DataAssociation> LidarOdometry::filterDataAssociations(const std::vector<DataAssociation>& association_in, const std::vector<std::shared_ptr<std::vector<Pointd> > >& pts)
-{
-    // For each data associations get the normal vector or the line vector
-    std::map<int, std::map<std::tuple<int, int, int, int, int>, std::vector<DataAssociation> > > association_maps;
-    for(size_t i = 0; i < association_in.size(); ++i)
-    {
-        int type = association_in[i].type;
-
-        if(association_maps.count(type) == 0)
-        {
-            association_maps[type] = std::map<std::tuple<int, int, int, int, int>, std::vector<DataAssociation> >();
-        }
-
-        if(association_in[i].target_ids.size() == 3)
-        {
-            std::pair<int, int> target_id = association_in[i].target_ids[0];
-            Vec3 target_1 = pts[target_id.first]->at(target_id.second).vec3();
-            target_id = association_in[i].target_ids[1];
-            Vec3 target_2 = pts[target_id.first]->at(target_id.second).vec3();
-            target_id = association_in[i].target_ids[2];
-            Vec3 target_3 = pts[target_id.first]->at(target_id.second).vec3();
-
-            Vec3 center = pts[association_in[i].pc_id]->at(association_in[i].feature_id).vec3();
-
-            Vec3 v1 = target_2 - target_1;
-            Vec3 v2 = target_3 - target_1;
-            Vec3 normal = v1.cross(v2);
-            normal.normalize();
-
-            // Get the elevation and azimuth
-            double elevation = std::asin(normal[2]);
-            double azimuth = std::atan2(normal[1], normal[0]);
-
-            int azimuth_id = int(azimuth/kAssociationFilterAngQuantum);
-            int elevation_id = int(elevation/kAssociationFilterAngQuantum);
-            int x_id = int(center[0]/kAssociationFilterLinQuantum);
-            int y_id = int(center[1]/kAssociationFilterLinQuantum);
-            int z_id = int(center[2]/kAssociationFilterLinQuantum);
-
-        
-            //std::cout << "IDs " << azimuth_id << "  " << elevation_id << "  " << x_id << "  " << y_id << "  " << z_id << std::endl;
-            
-            if(association_maps[type].count(std::make_tuple(azimuth_id, elevation_id, x_id, y_id, z_id)) > 0)
-            {
-                association_maps[type][std::make_tuple(azimuth_id, elevation_id, x_id, y_id, z_id)].push_back(association_in[i]);
-            }
-            else
-            {
-                association_maps[type][std::make_tuple(azimuth_id, elevation_id, x_id, y_id, z_id)] = std::vector<DataAssociation>(1, association_in[i]);
-            }
-
-        }
-        else if(association_in[i].target_ids.size() == 2)
-        {
-            std::pair<int, int> target_id = association_in[i].target_ids[0];
-            Vec3 target_1 = pts[target_id.first]->at(target_id.second).vec3();
-            target_id = association_in[i].target_ids[1];
-            Vec3 target_2 = pts[target_id.first]->at(target_id.second).vec3();
-
-            Vec3 v1 = target_2 - target_1;
-            v1.normalize();
-            Vec3 center = pts[association_in[i].pc_id]->at(association_in[i].feature_id).vec3();
-
-            // Get the elevation and azimuth
-            double elevation = std::asin(v1[2]);
-            double azimuth = std::atan2(v1[1], v1[0]);
-
-            int azimuth_id = int(azimuth/kAssociationFilterAngQuantum);
-            int elevation_id = int(elevation/kAssociationFilterAngQuantum);
-            int x_id = int(center[0]/kAssociationFilterLinQuantum);
-            int y_id = int(center[1]/kAssociationFilterLinQuantum);
-            int z_id = int(center[2]/kAssociationFilterLinQuantum);
-            
-            if(association_maps[type].count(std::make_tuple(azimuth_id, elevation_id, x_id, y_id, z_id)) > 0)
-            {
-                association_maps[type][std::make_tuple(azimuth_id, elevation_id, x_id, y_id, z_id)].push_back(association_in[i]);
-            }
-            else
-            {
-                association_maps[type][std::make_tuple(azimuth_id, elevation_id, x_id, y_id, z_id)] = std::vector<DataAssociation>(1, association_in[i]);
-            }
-        }
-        else
-        {
-            throw std::runtime_error("LidarOdometry::filterDataAssociation: Unknown/non-implemented number of target ids");
-        }
-
-    }
-
-    // For each association map
-    std::vector<std::vector<DataAssociation>> association_out;
-    std::vector<int> association_counters;
-    for(auto& [type, association_map] : association_maps)
-    {
-        association_counters.push_back(0);
-        association_out.push_back(std::vector<DataAssociation>());
-        for(auto& [key, associations] : association_map)
-        {
-            // Pick randomly up to kMaxNbAssociationPerBin associations
-            auto rng = std::default_random_engine {};
-            std::shuffle(associations.begin(), associations.end(), rng);
-            int nb_associations = std::min(kMaxNbAssociationPerBin, int(associations.size()));
-            int temp_asso_size = associations.size();
-            for(int i = temp_asso_size - 1; i >= temp_asso_size - nb_associations; --i)
-            {
-                association_out.back().push_back(associations.back());
-                associations.pop_back();
-                association_counters.back()++;
-            }
-        }
-        std::cout << "Nb associations for type " << type << " before capping: " << association_counters.back() << std::endl;
-
-        if(association_counters.back() > kMaxNbAssociationsPerType)
-        {
-            auto rng = std::default_random_engine {};
-            std::shuffle(association_out.back().begin(), association_out.back().end(), rng);
-            association_out.back().resize(kMaxNbAssociationsPerType);
-            association_counters.back() = kMaxNbAssociationsPerType;
-        }
-    }
-    
-    std::vector<DataAssociation> association_out_flat;
-    for(size_t i = 0; i < association_out.size(); ++i)
-    {
-        association_out_flat.insert(association_out_flat.end(), association_out[i].begin(), association_out[i].end());
-    }
-
-
-
-    
-    return association_out_flat;
-}
-
-
-
-
-
-
-void LidarOdometry::addBlocks(ceres::Problem& problem)
-{
-    // Create the SE3 manifold
-    ceres::ProductManifold<ceres::QuaternionManifold, ceres::EuclideanManifold<3>>* se3 = new ceres::ProductManifold<ceres::QuaternionManifold, ceres::EuclideanManifold<3>>();
-
-    // Add the state variables
-    problem.AddParameterBlock(state_blocks_[0].data(), 3);
-    problem.AddParameterBlock(state_blocks_[1].data(), 3);
-    ceres::SphereManifold<3>* sphere = new ceres::SphereManifold<3>();
-    problem.AddParameterBlock(state_blocks_[2].data(), 3, sphere);
-
-    ZeroPrior* prior = new ZeroPrior(3, 100);
-    problem.AddResidualBlock(prior, NULL, state_blocks_[0].data());
-    problem.AddParameterBlock(state_blocks_[3].data(), 3);
-    problem.AddParameterBlock(state_calib_.data(), 7, se3);
-    problem.AddParameterBlock(&time_offset_, 1);
-
-    // Debug
-    problem.SetParameterBlockConstant(&time_offset_);
-    problem.SetParameterBlockConstant(state_calib_.data());
-}
-
-
-
-void LidarOdometry::addLidarResiduals(ceres::Problem& problem
-        , const std::vector<DataAssociation>& data_associations
-        , const std::vector<std::shared_ptr<std::vector<Pointd> > >& pts
-        , const State& state
-        )
-{
-    // Add the residuals
-    std::cout << "Adding " << data_associations.size() << " lidar residuals" << std::endl;
-
-
-    //LidarAllCostFunction* cost_function = new LidarAllCostFunction(state, data_associations, pts);
-    //problem.AddResidualBlock(cost_function, loss_function_, state_blocks_[0].data(), state_blocks_[1].data(), state_blocks_[2].data(), state_blocks_[3].data(), &time_offset_, state_calib_.data());
-
-    for(size_t i = 0; i < data_associations.size(); ++i)
-    {
-        LidarCostFunction* cost_function = new LidarCostFunction(state, data_associations[i], pts, lidar_weight_);
-
-        problem.AddResidualBlock(cost_function, loss_function_, state_blocks_[0].data(), state_blocks_[1].data(), state_blocks_[2].data(), state_blocks_[3].data(), &time_offset_, state_calib_.data());
-    }
-
-}
-
-
-
-
-void LidarOdometry::createProblemAssociateAndOptimise(
-        const std::vector<std::shared_ptr<std::vector<Pointd> > >& pts
-        , const State& state
-        , const std::set<int>& types
-        , const int nb_iter)
-{
-    // Perform the optimisation
-    ceres::Solver::Options options;
-    options.minimizer_progress_to_stdout = false;
-    options.max_num_iterations = nb_iter;
-    options.num_threads = 16;
-    options.linear_solver_type = ceres::DENSE_NORMAL_CHOLESKY;
-    options.function_tolerance = 1e-4;
-    //options.check_gradients = true;
-
-
-    // Project the features to the state times
-    std::vector<std::shared_ptr<std::vector<Pointd> > > projected_features = projectPoints(
-        pts,
-        state,
-        state_blocks_,
-        time_offset_,
-        state_calib_);
-    
-    // Scan to scan correspondences
-    std::vector<DataAssociation> data_associations = getAllAssociations(types, projected_features);
-
-    //visualiseDataAssociation(data_associations, "Data association "+ std::to_string(ros::Time::now().toSec()) +"  " + std::to_string(pc_t_[0]) + " scan to scan");
-
-    int temp_nb_data_associations = data_associations.size();
-
-    data_associations = filterDataAssociations(data_associations, projected_features);
-    std::cout << "Nb data associations (before / after filtering): " << temp_nb_data_associations << " / " << data_associations.size() << std::endl;
-
-    //visualiseDataAssociation(data_associations, "Data association after filtering "+ std::to_string(ros::Time::now().toSec()) +"  " + std::to_string(pc_t_[0]) + " scan to scan");
-
-    ceres::Problem::Options pb_options;
-    pb_options.loss_function_ownership = ceres::DO_NOT_TAKE_OWNERSHIP;
-
-    ceres::Problem problem(pb_options);
-    addBlocks(problem);
-    addLidarResiduals(problem, data_associations, pts, state);
-
-
-    // Solve the problem
-    ceres::Solver::Summary summary;
-    ceres::Solve(options, &problem, &summary);
-    std::cout << summary.BriefReport() << std::endl;
-
-
-}
-
-
-
-void LidarOdometry::visualiseRawSubmap()
-{
-    std::vector<std::shared_ptr<std::vector<Pointd> > > temp_pc;
-    for(int i = 0; i < params_.nb_scans_per_submap; ++i)
-    {
-        temp_pc.push_back(pc_[i]);
-    }
-    visualisePoints(temp_pc);
-}
-
-void LidarOdometry::visualiseSubmap(const State& state)
-{
-    std::vector<std::shared_ptr<std::vector<Pointd> > > temp_pc;
-    for(int i = 0; i < params_.nb_scans_per_submap; ++i)
-    {
-        temp_pc.push_back(pc_[i]);
-    }
-    std::vector<std::shared_ptr<std::vector<Pointd> > > projected_pc = projectPoints(
-        temp_pc,
-        state,
-        state_blocks_,
-        time_offset_,
-        state_calib_);
-    visualisePoints(projected_pc);
-}
-
-
-
-void LidarOdometry::prepareSubmap(const State state, std::vector<std::shared_ptr<std::vector<Pointd> > > temp_pc, std::vector<double> temp_pc_t, std::vector<Vec3> state_blocks, Vec7 state_calib, double time_offset)
-{
-
-    StopWatch sw;
-    sw.start();
-
-    
-    int mid_id = params_.id_scan_to_publish; //int(params_.nb_scans_per_submap/2);
-    double mid_t = temp_pc_t.at(mid_id);
-
-    node_->publishTransform(mid_t, current_pos_, current_rot_);
-
-    // Compute all the scan poses that are needed
-    auto [mid_pos, mid_rot] = state.query(mid_t, state_blocks.at(0), state_blocks.at(1), state_blocks.at(2), state_blocks.at(3), time_offset);
-
-    auto [inv_mid_pos, inv_mid_rot] = invertTransform(mid_pos, mid_rot);
-
-    double temp_next_time;
-    if(mid_id < params_.nb_scans_per_submap - 1)
-    {
-        temp_next_time = temp_pc_t[mid_id+1];
+        log_file.open(log_path, std::ios::out);
     }
     else
     {
-        temp_next_time = temp_pc[mid_id]->back().t;
+        log_file.open(log_path, std::ios::app);
     }
-    auto [next_pos, next_rot] = state.query(temp_next_time, state_blocks_[0], state_blocks_[1], state_blocks_[2], state_blocks_[3], time_offset_);
-
-    auto [increment_pos, increment_rot] = combineTransforms(inv_mid_pos, inv_mid_rot, next_pos, next_rot);
-
-    std::tie(current_pos_, current_rot_) = combineTransforms(current_pos_, current_rot_, increment_pos, increment_rot);
-
-    // Publish the odometry at the end of the scan
-    auto [twist_linear, twist_angular] = state.queryTwist(temp_next_time, state_blocks_[0], state_blocks_[1], state_blocks_[2], state_blocks_[3], time_offset_);
-
-    node_->publishGlobalOdom(temp_next_time, current_pos_, current_rot_, twist_linear, twist_angular);
-
-
-    node_->publishDeltaTransform(mid_t, increment_pos, increment_rot);
-
-    mutex_output_.lock();
-    int slot_id = -1;
-    for(size_t i = 0; i < output_slots_.size(); ++i)
+    if(!log_file.is_open())
     {
-        if(output_slots_[i])
-        {
-            output_slots_[i] = false;
-            slot_id = i;
-            break;
-        }
-    }
-    mutex_output_.unlock();
-    if(slot_id < 0)
-    {
-        std::cout << "WARNING: No available slot for output (dynamic filtering might be too slow, consider keyframing)" << std::endl;
+        std::cerr << "LidarOdometry::logState: Unable to open log file: " << log_path << std::endl;
         return;
     }
-
-    
-    std::vector<int> start_ids;
-    start_ids.push_back(0);
-    int nb_pts = 0;
-
-    if(params_.publish_all_scans || params_.dynamic_filtering)
+    if(first_optimisation_)
     {
-        for(int i = 0; i < params_.nb_scans_per_submap; ++i)
-        {
-            start_ids.push_back(start_ids.back() + temp_pc.at(i)->size());
-            nb_pts += temp_pc.at(i)->size();
-        }
-    }
-    else
-    {
-        nb_pts = temp_pc.at(mid_id)->size();
+        log_file << "time,x,y,z,rx,ry,rz,acc_bias_x,acc_bias_y,acc_bias_z,gyr_bias_x,gyr_bias_y,gyr_bias_z,gravity_x,gravity_y,gravity_z,vel_x,vel_y,vel_z,time_offset,calib_qw,calib_qx,calib_qy,calib_qz,calib_tx,calib_ty,calib_tz\n";
     }
 
-
-
-    std::vector<Pointf>projected_pc(nb_pts);
-
-
-    Mat3 R_calib;
-    ceres::QuaternionToRotation<double>(state_calib.data(), R_calib.data());
-    Vec3 p_calib = state_calib.segment<3>(4);
-
-    Mat3 R_mid = ugpm::expMap(mid_rot);
-    Vec3 p_mid = mid_pos;
-
-    int start_id = (params_.publish_all_scans || params_.dynamic_filtering ? 0 : mid_id);
-    int end_id = (params_.publish_all_scans || params_.dynamic_filtering ? params_.nb_scans_per_submap : mid_id+1);
-    for(int i = start_id; i < end_id; ++i)
-    {
-        std::vector<double> local_temp_pc_t;
-        local_temp_pc_t.reserve(temp_pc.at(i)->size());
-        for(size_t j = 0; j < temp_pc.at(i)->size(); ++j)
-        {
-            local_temp_pc_t.push_back(temp_pc.at(i)->at(j).t);
-        }
-
-
-        std::vector<std::pair<Vec3, Vec3> > poses = state.queryApprox(local_temp_pc_t, state_blocks[0], state_blocks[1], state_blocks[2], state_blocks[3], time_offset);
-
-
-        for(size_t j = 0; j < temp_pc.at(i)->size(); ++j)
-        {
-
-            Vec3& pos = poses[j].first;
-            Vec3& rot = poses[j].second;
-
-            Vec3 p_L = temp_pc.at(i)->at(j).vec3();
-            Vec3 p_I = R_calib * p_L + p_calib;
-            Vec3 p_W;
-            ceres::AngleAxisRotatePoint<double>(rot.data(), p_I.data(), p_W.data());
-            p_W += pos;
-
-            p_W = R_mid.transpose() * (p_W - p_mid);
-
-            projected_pc.at(start_ids[i-start_id]+j) = Pointf(float(p_W[0]), float(p_W[1]), float(p_W[2]), temp_pc[i]->at(j).t, temp_pc[i]->at(j).i, temp_pc[i]->at(j).channel, temp_pc[i]->at(j).type, temp_pc[i]->at(j).scan_id, temp_pc[i]->at(j).dynamic);
-
-        }
-    }
-
-    if(params_.dynamic_filtering && (!params_.publish_all_scans))
-    {
-        auto first = projected_pc.begin() + start_ids[mid_id];
-        auto last = first + temp_pc.at(mid_id)->size();
-        std::vector<Pointf> temp_pc(first, last);
-        node_->publishPc(mid_t, temp_pc);
-    }
-    else
-    {
-        node_->publishPc(mid_t, projected_pc);
-    }
-    
-    bool compute = false;
-    if(params_.key_framing)
-    {
-        double time_diff = mid_t - last_output_time_;
-        Mat4 current_pose = posRotToTransform(current_pos_, current_rot_);
-        if(time_diff > params_.key_frame_time)
-        {
-            last_output_time_ = mid_t;
-            last_output_pose_ = current_pose;
-            compute = true;
-        }
-        if(!compute)
-        {
-            auto [dist, angle] = distanceBetweenTransforms(current_pose, last_output_pose_);
-            if(dist > params_.key_frame_dist || angle > params_.key_frame_angle)
-            {
-                last_output_time_ = mid_t;
-                last_output_pose_ = current_pose;
-                compute = true;
-            }
-        }
-    }
-    else
-    {
-        compute = true;
-    }
-
-    if(params_.dynamic_filtering && compute)
-    {
-        StopWatch sw2;
-        sw2.start();
-        auto [static_pc, dynamic_pc, unsure_pc] = dynamicFiltering(projected_pc, params_.dynamic_filtering_threshold, params_.dynamic_filtering_voxel_size);
-        node_->publishPcFiltered(mid_t, static_pc, dynamic_pc, unsure_pc);
-        sw2.stop();
-        sw2.print("Total dynamic filtering: ");
-    }
-
-    mutex_output_.lock();
-    output_slots_[slot_id] = true;
-    mutex_output_.unlock();
-
-    sw.stop();
-    sw.print("Prepare submap and publish (include dynamic filtering): ");
+    log_file << std::fixed << current_time_ << ","
+                << current_pos_[0] << "," << current_pos_[1] << "," << current_pos_[2] << ","
+                << current_rot_[0] << "," << current_rot_[1] << "," << current_rot_[2] << ","
+                << state_blocks_[0][0] << "," << state_blocks_[0][1] << "," << state_blocks_[0][2] << ","
+                << state_blocks_[1][0] << "," << state_blocks_[1][1] << "," << state_blocks_[1][2] << ","
+                << state_blocks_[2][0] << "," << state_blocks_[2][1] << "," << state_blocks_[2][2] << ","
+                << state_blocks_[3][0] << "," << state_blocks_[3][1] << "," << state_blocks_[3][2] << ","
+                << time_offset_ << ","
+                << state_calib_[0] << "," << state_calib_[1] << "," << state_calib_[2] << "," << state_calib_[3] << ","
+                << state_calib_[4] << "," << state_calib_[5] << "," << state_calib_[6] << "\n";
+    log_file.flush();
+    log_file.close();
 }
+
+
 
 
 void LidarOdometry::prepareNextState(const State& state)
 {
-    mutex_.lock();
-    auto [next_pos, next_rot] = state.query(pc_t_[1], state_blocks_[0], state_blocks_[1], state_blocks_[2], state_blocks_[3], time_offset_);
+    pc_mutex_.lock();
+    int64_t next_query_time = (params_.low_latency) ? pc_chunks_t_.at(1) : pc_chunks_t_.at(2);
+    pc_mutex_.unlock();
+    auto [next_pos, next_rot] = state.query(nanosToImuTime(next_query_time), state_blocks_[0], state_blocks_[1], state_blocks_[2], state_blocks_[3], time_offset_);
 
     Mat3 R = ugpm::expMap(next_rot);
 
-    state_blocks_[0] = Vec3::Zero();
-    state_blocks_[1] = Vec3::Zero();
+    acc_bias_sum_ += state_blocks_[0];
+    gyr_bias_sum_ += state_blocks_[1];
+    bias_count_++;
+
+    if(bias_count_ >= 10)
+    {
+        state_blocks_[0] = acc_bias_sum_ / bias_count_;
+        state_blocks_[1] = gyr_bias_sum_ / bias_count_;
+    }
+    else
+    {
+        state_blocks_[0] = Vec3::Zero();
+        state_blocks_[1] = Vec3::Zero();
+    }
 
     state_blocks_[2] = R.transpose()*state_blocks_[2];
     state_blocks_[3] = R.transpose()*state_blocks_[3];
 
 
-    // Remove the first point cloud and features
-    pc_.erase(pc_.begin());
-    features_.erase(features_.begin());
-    pc_t_.erase(pc_t_.begin());
-
-    imu_data_ = imu_data_.get(pc_t_[0]- 2*state_period_, std::numeric_limits<double>::max());
+    mutex_.lock();
+    int64_t margin = (int64_t)(scan_time_sum_ / (2*scan_count_));
     mutex_.unlock();
+    imu_mutex_.lock();
+    imu_data_ = imu_data_.get(nanosToImuTime(pc_chunks_t_.at(0) - margin), std::numeric_limits<double>::max());
+    imu_mutex_.unlock();
+
+    // Remove the first 2 chunks of point clouds and features
+    int n_to_remove = (params_.low_latency) ? 1 : 2;
+    pc_mutex_.lock();
+    pc_chunks_.erase(pc_chunks_.begin(), pc_chunks_.begin() + n_to_remove);
+    pc_chunk_features_.erase(pc_chunk_features_.begin(), pc_chunk_features_.begin() + n_to_remove);
+    pc_chunk_features_sparse_.erase(pc_chunk_features_sparse_.begin(), pc_chunk_features_sparse_.begin() + n_to_remove);
+    pc_chunks_t_.erase(pc_chunks_t_.begin(), pc_chunks_t_.begin() + n_to_remove);
+    pc_mutex_.unlock();
 
 }
 
 
+void LidarOdometry::updateCurrentPose(const int64_t t0, const int64_t t1)
+{
+    auto [pos_t0, rot_t0] = prev_state_.query(nanosToImuTime(t0), prev_state_blocks_[0], prev_state_blocks_[1], prev_state_blocks_[2], prev_state_blocks_[3], prev_time_offset_);
+    auto [pos_t1, rot_t1] = prev_state_.query(nanosToImuTime(t1), prev_state_blocks_[0], prev_state_blocks_[1], prev_state_blocks_[2], prev_state_blocks_[3], prev_time_offset_);
+    auto [inv_pos_t0, inv_rot_t0] = invertTransform(pos_t0, rot_t0);
+    auto [increment_pos, increment_rot] = combineTransforms(inv_pos_t0, inv_rot_t0, pos_t1, rot_t1);
+    current_pose_mutex_.lock();
+    std::tie(current_pos_, current_rot_) = combineTransforms(current_pos_, current_rot_, increment_pos, increment_rot);
+    current_time_ = t1;
+    current_pose_mutex_.unlock();
+}
 
-
-void LidarOdometry::optimise()
-{   
-    std::cout << "LidarOdometry::optimise" << std::endl;
-
+void LidarOdometry::publishResults(const State& state)
+{
     StopWatch sw;
     sw.start();
 
-    // Get the data for optimisation
-    auto [features, imu_data] = getDataForOptimisation();
+    int id_to_run = (params_.low_latency) ? 1 : 2;
+    pc_mutex_.lock();
+    int64_t anchor_t = pc_chunks_t_.at(id_to_run);
+    int64_t t1 = pc_chunks_t_.at(1);
+    pc_mutex_.unlock();
 
-    sw.stop();
-    sw.print("Get data for optimisation: ");
+    auto [pos_t1, rot_t1] = state.query(nanosToImuTime(t1), state_blocks_[0], state_blocks_[1], state_blocks_[2], state_blocks_[3], time_offset_);
+    auto [inv_pos_t1, inv_rot_t1] = invertTransform(pos_t1, rot_t1);
 
-    std::cout << "Optimizing with " << features.size() << " scans, " << imu_data_.acc.size() << " acc samples, and " << imu_data_.gyr.size() << " gyr samples" << std::endl;
 
-    sw.reset();
-    sw.start();
-
-    double submap_t = pc_t_.at(0);
-    double last_t = pc_[params_.nb_scans_per_submap-1]->back().t;
-
-    State state(imu_data, submap_t, last_t, state_frequency_);
-
-    // Initialise the state values
-    std::cout << "IMU initialisation not implemented yet" << std::endl;
+    node_->publishTransform(current_time_, current_pos_, current_rot_);
 
     if(first_optimisation_)
     {
-        initState(imu_data_);
+
+        current_pose_mutex_.lock();
+        std::tie(current_pos_, current_rot_) = combineTransforms(current_pos_, current_rot_, inv_pos_t1, inv_rot_t1);
+        current_time_ = t1;
+        node_->publishTransform(current_time_, current_pos_, current_rot_);
+        current_pose_mutex_.unlock();
     }
 
     
-    sw.stop();
-    sw.print("State precomputations: ");
+    // Publish the odometry at the end of the scan
+    int64_t end_t = anchor_t + (int64_t)(scan_time_sum_ / scan_count_);
+    auto [pos_end, rot_end] = state.query(nanosToImuTime(end_t), state_blocks_[0], state_blocks_[1], state_blocks_[2], state_blocks_[3], time_offset_);
+    auto [increment_pos, increment_rot] = combineTransforms(inv_pos_t1, inv_rot_t1, pos_end, rot_end);
+    auto [current_end_pos, current_end_rot] = combineTransforms(current_pos_, current_rot_, increment_pos, increment_rot);
+    auto [twist_linear, twist_angular] = state.queryTwist(nanosToImuTime(end_t), state_blocks_[0], state_blocks_[1], state_blocks_[2], state_blocks_[3], time_offset_);
+    node_->publishGlobalOdom(end_t, current_end_pos, current_end_rot, twist_linear, twist_angular);
 
 
-    sw.reset();
-    sw.start();
-
-    // Create the problem and optimise
-    if(first_optimisation_)
+    pc_mutex_.lock();
+    // Launch the correction of the point clouds in a separate thread
+    if(params_.dense_pc_output)
     {
-        createProblemAssociateAndOptimise(features, state, kTypes, 5);
-        createProblemAssociateAndOptimise(features, state, kTypes, 5);
+        std::thread dense_correction_thread(&LidarOdometry::correctAndPublishPc, this, pc_chunks_,pc_chunks_t_, state, state_blocks_, state_calib_, time_offset_, true);
+        dense_correction_thread.detach();
     }
-    createProblemAssociateAndOptimise(features, state, kTypes, 14);
+    std::thread correction_thread(&LidarOdometry::correctAndPublishPc, this, pc_chunk_features_, pc_chunks_t_, state, state_blocks_, state_calib_, time_offset_, false);
+    correction_thread.detach();
 
 
+    pc_mutex_.unlock();
 
-    // Launch the preparation of the submap in a separate thread
-    mutex_.lock();
-    std::vector<std::shared_ptr<std::vector<Pointd> > > temp_pc;
-    std::vector<double> temp_pc_t;
-    for(int i = 0; i < params_.nb_scans_per_submap; ++i)
-    {
-        temp_pc.push_back(pc_.at(i));
-        temp_pc_t.push_back(pc_t_.at(i));
-    }
-    
-    mutex_.unlock();
+    prev_state_ = state;
+    prev_state_blocks_ = state_blocks_;
+    prev_state_calib_ = state_calib_;
+    prev_time_offset_ = time_offset_;
 
-    std::thread submap_thread(&LidarOdometry::prepareSubmap, this, state, temp_pc, temp_pc_t, state_blocks_, state_calib_, time_offset_);
-    submap_thread.detach();
-
-
-    prepareNextState(state);
 
     sw.stop();
-    sw.print("Optimisation and launch publisher: ");
-
-    
-    first_optimisation_ = false;
+    sw.print("Querying and publishing odom results: ");
 }
+
+
+
+void LidarOdometry::correctAndPublishPc(
+        const std::vector<std::shared_ptr<std::vector<Pointd> > > pts,
+        const std::vector<int64_t> pc_chunks_t,
+        const State state,
+        const std::vector<Vec3> state_blocks,
+        const Vec7 state_calib,
+        const double time_offset,
+        const bool dense)
+{
+    StopWatch sw;
+    sw.start();
+
+    int64_t current_t;
+    current_pose_mutex_.lock();
+    current_t = current_time_;
+    current_pose_mutex_.unlock();
+
+    int64_t end_t = (params_.low_latency) ? pc_chunks_t.at(1) : pc_chunks_t.at(2);
+    end_t += (int64_t)(scan_time_sum_ / scan_count_);
+    if(end_t < current_t)
+    {
+        std::cout << "Skipping point cloud correction, current time is " << current_t << " and end time is " << end_t << std::endl;
+        return;
+    }
+    
+
+    auto [pos_t1, rot_t1] = state.query(nanosToImuTime(pc_chunks_t.at(1)), state_blocks[0], state_blocks[1], state_blocks[2], state_blocks[3], time_offset);
+
+    auto [inv_pos_t1, inv_rot_t1] = invertTransform(pos_t1, rot_t1);
+
+    Vec3 r_calib;
+    ceres::QuaternionToAngleAxis<double>(state_calib.data(), r_calib.data());
+    Vec3 t_calib = state_calib.segment<3>(4);
+
+    // Correct the points of chuncks 1 and 2 and publish them
+    std::vector<Pointd> pc_corrected;
+    if(params_.low_latency)
+    {
+        pc_corrected.reserve(pts.at(1)->size());
+    }
+    else
+    {
+        pc_corrected.reserve(pts.at(1)->size() + pts.at(2)->size());
+    }
+    int nb_to_run = (params_.low_latency) ? 2 : 3;
+    for(int i = 1; i < nb_to_run; ++i)
+    {
+        std::vector<double> chunk_t;
+        chunk_t.reserve(pts.at(i)->size());
+        for(size_t j = 0; j < pts.at(i)->size(); ++j)
+        {
+            chunk_t.push_back(nanosToImuTime(pts.at(i)->at(j).t));
+        }
+        std::vector<std::pair<Vec3, Vec3>> poses = state.queryApprox(chunk_t, state_blocks[0], state_blocks[1], state_blocks[2], state_blocks[3], time_offset);
+
+        for(size_t j = 0; j < pts.at(i)->size(); ++j)
+        {
+            auto[pos, rot] = combineTransforms(poses[j].first, poses[j].second, t_calib, r_calib);
+            std::tie(pos, rot) = combineTransforms(inv_pos_t1, inv_rot_t1, pos, rot);
+            Vec3 p_L = pts.at(i)->at(j).vec3();
+            Vec3 p_t1;
+            ceres::AngleAxisRotatePoint<double>(rot.data(), p_L.data(), p_t1.data());
+            p_t1 += pos;
+            pc_corrected.push_back(Pointd(p_t1, pts.at(i)->at(j).t, pts.at(i)->at(j).i, pts.at(i)->at(j).channel, pts.at(i)->at(j).type));
+        }
+
+    }
+
+                
+
+    sw.stop();
+    sw.print("Correcting point clouds of " + std::to_string(pc_corrected.size()) + " points: ");
+
+    sw.reset();
+    sw.start();
+
+    if(dense)
+    {
+        node_->publishPcDense(pc_chunks_t.at(1), pc_corrected);
+    }
+    else
+    {
+        // Sort the point cloud by time
+        std::sort(pc_corrected.begin(), pc_corrected.end(), [](const Pointd& a, const Pointd& b) {
+            return a.t < b.t;
+        });
+        node_->publishPc(pc_chunks_t.at(1), pc_corrected);
+    }
+
+    sw.stop();
+    sw.print("Publishing point cloud: ");
+
+}
+
+

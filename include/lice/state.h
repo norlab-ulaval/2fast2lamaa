@@ -18,7 +18,8 @@ class State
 
     public:
 
-        State(const ugpm::ImuData& imu_data, const double first_t, const double last_t, const double state_freq);
+        State(const ugpm::ImuData& imu_data, const double first_t, const double state_freq);
+        State(){};
 
 
         std::vector<std::pair<Vec3, Vec3> > query(
@@ -81,7 +82,15 @@ class State
                 , const Vec3& vel
                 , const double dt
                 ) const;
-
+        
+        Vec3 queryVelocity(
+                const double query_time
+                , const Vec3& acc_bias
+                , const Vec3& gyr_bias
+                , const Vec3& gravity
+                , const Vec3& vel
+                , const double dt
+                ) const;
 };
 
 void testStateMonoJacobians();

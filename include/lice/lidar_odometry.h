@@ -7,7 +7,8 @@
 #include "lice/utils.h"
 #include "lice/cost_functions.h"
 #include "lice/state.h"
-#include "lice/lidar_odometry_node.h"
+#include "ankerl/unordered_dense.h"
+#include "lice/pointcloud_utils.h"
 
 
 #include <ceres/ceres.h>
@@ -15,19 +16,24 @@
 
 class LidarOdometryNode;
 
-const double kPullPeriod = 0.01;
+const double kPullPeriod = 0.001;
 const double kAssociationFilterAngQuantum = 1.0;
-const double kAssociationFilterLinQuantum = 0.75;
+//const double kAssociationFilterLinQuantum = 0.75;
 
 const int kMaxNbAssociationPerBin = 3;
-const int kMaxNbAssociationsPerType = 500;
 
 struct LidarOdometryParams
 {
+    bool low_latency = false;
+    bool dense_pc_output = false; // If true, also output dense point cloud
+    double min_range = 1.0;
+    double max_range = 150.0;
     double min_feature_dist = 0.05;
     double max_feature_dist = 0.5;
-    int nb_scans_per_submap = 2;
-    int id_scan_to_publish = 1;
+    double max_feature_range = 150.0;
+    double feature_voxel_size = 0.3;
+    double loss_function_scale = 0.25;
+    uint32_t max_associations_per_type = 500;
     double state_frequency = 10;
     double g = 9.80;
     double calib_px = 0.0;
@@ -41,16 +47,11 @@ struct LidarOdometryParams
     double acc_std = 0.02;
     double lidar_std = 0.02;
 
-    bool publish_all_scans = false;
+    double association_filter_lin_quantum = 0.45;
 
-    bool dynamic_filtering = false;
-    float dynamic_filtering_threshold = 0.5;
-    float dynamic_filtering_voxel_size = 0.15;
+    bool unsorted_pc = false; // If true, the incoming point clouds are not sorted by time
 
-    bool key_framing = false;
-    double key_frame_dist = 1.0;
-    double key_frame_angle = 0.25;
-    double key_frame_time = 0.5;
+    bool planar_only = false; // If true, only use planar features (no edge features)
 
 };
 
@@ -65,10 +66,10 @@ class LidarOdometry
 
         LidarOdometry(const LidarOdometryParams& params, LidarOdometryNode* node);
 
-        void addPc(const std::shared_ptr<std::vector<Pointd>>& pc, const std::shared_ptr<std::vector<Pointd> > features, const double t);
+        void addPc(const std::shared_ptr<std::vector<Pointd>>& pc, const int64_t t);
 
-        void addAccSample(const Vec3& acc, const double t);
-        void addGyroSample(const Vec3& gyro, const double t);
+        void addAccSample(const Vec3& acc, const int64_t t);
+        void addGyroSample(const Vec3& gyro, const int64_t t);
 
         void stop();
         void run();
@@ -86,47 +87,100 @@ class LidarOdometry
         LidarOdometryParams params_;
         LidarOdometryNode* node_;
 
-        std::mutex mutex_;
-
-        std::vector<std::shared_ptr<std::vector<Pointd> > > pc_;
-        std::vector<std::shared_ptr<std::vector<Pointd> > > features_;
-        std::vector<double> pc_t_;
-        std::vector<std::vector<DataAssociation> > data_associations_save_;
-
-        std::mutex mutex_output_;
-        std::vector<bool> output_slots_;
-        double last_output_time_ = std::numeric_limits<double>::lowest();
-        Mat4 last_output_pose_ = Mat4::Identity();
-
-
-        double lidar_weight_ = 1.0;
-
-
-        Vec3 current_pos_ = Vec3::Zero();
-        Vec3 current_rot_ = Vec3::Zero();
-
-
-
-        bool first_acc_ = true;
-        bool first_optimisation_ = true;
-        //ros::Time first_t_;
-
+        // Flag to indicate if the node is running
         bool running_ = false;
 
+        // Mutex to access the incoming data (point clouds and IMU)
+        std::mutex mutex_;
+        std::mutex imu_mutex_;
+        std::mutex pc_mutex_;
 
+        // Estimate the average scan time
+        int64_t last_pc_time_ = -1;
+        int64_t scan_time_sum_ = 0;
+        int scan_count_ = 0;
+
+        // Storing the incoming point clouds
+        std::vector<std::shared_ptr<std::vector<Pointd> > > pc_;
+        std::vector<int64_t> pc_t_;
+
+        // Storing the incoming IMU data
         ugpm::ImuData imu_data_;
+        // Storing an time offset to interact with the UGPM data structure
+        bool first_ = true;
+        int64_t imu_time_offset_ = 0;
+
+        // Storing the chunks of point clouds
+        std::vector<std::shared_ptr<std::vector<Pointd> > > pc_chunks_;
+        std::vector<std::shared_ptr<std::vector<Pointd> > > pc_chunk_features_;
+        std::vector<std::shared_ptr<std::vector<Pointd> > > pc_chunk_features_sparse_;
+        std::vector<int64_t> pc_chunks_t_;
+
+        ////// Variables to perform scan splitting (from raw point cloud chunks)
+        int64_t median_dt_ = -1;
+
+
+        // Current odometry state
+        Vec3 current_pos_ = Vec3::Zero();
+        Vec3 current_rot_ = Vec3::Zero();
+        std::mutex current_pose_mutex_;
+        int64_t current_time_ = 0;
+
+        // State variables (blocks in ceres)
         // acc_bias, gyr_bias, gravity, vel
         std::vector<Vec3> state_blocks_;
         double time_offset_ = 0.0;
         Vec7 state_calib_;
 
-        double state_period_;
-        double state_frequency_;
-
+        // Optimisation related flags and objects
+        bool first_optimisation_ = true;
         ceres::LossFunction* loss_function_;
+        double lidar_weight_ = 1.0;
 
+        State prev_state_;
+        std::vector<Vec3> prev_state_blocks_;
+        double prev_time_offset_ = 0.0;
+        Vec7 prev_state_calib_;
+
+
+        // For bias initialisation
+        Vec3 acc_bias_sum_ = Vec3::Zero();
+        Vec3 gyr_bias_sum_ = Vec3::Zero();
+        int bias_count_ = 0;
+
+
+
+        // Function to convert point cloud times to IMU data times
+        double nanosToImuTime(const int64_t nanos) const;
+
+
+
+        // Split the point cloud into chunks and downsample to get the features
+        void splitAndFeatureExtraction(std::shared_ptr<std::vector<Pointd> > pc, const int64_t t);
+
+
+        // Get the data for optimisation: features and IMU data
+        std::tuple<std::vector<std::shared_ptr<std::vector<Pointd> > >, std::vector<std::shared_ptr<std::vector<Pointd> > >, ugpm::ImuData, int64_t, int64_t> getDataForOptimisation();
+
+        // Perform the data association and optimisation
         void optimise();
 
+        // Initialise the state
+        void initState(const ugpm::ImuData& imu_data);
+
+
+        // Sub function of optimise() that does the heavy lifting: data association and optimisation
+        std::vector<DataAssociation> createProblemAssociateAndOptimise(
+                const std::vector<std::shared_ptr<std::vector<Pointd> > >& pts
+                , const std::vector<std::shared_ptr<std::vector<Pointd> > >& sparse_pts
+                , const State& state
+                , const std::set<int>& types
+                , const int nb_iter=50
+                , bool vel_only = false
+                );
+
+
+        // Helper function to project points using the continuous preintegrated state
         std::vector<std::shared_ptr<std::vector<Pointd> > > projectPoints(
             const std::vector<std::shared_ptr<std::vector<Pointd> > >& pts,
             const State& state,
@@ -134,53 +188,62 @@ class LidarOdometry
             const double time_offset,
             const Vec7& state_calib) const;
 
+
+        std::vector<DataAssociation> getDataAssociations(
+                const std::set<int>& types
+                , const std::vector<std::shared_ptr<std::vector<Pointd> > >& pts
+                , const std::vector<std::shared_ptr<std::vector<Pointd> > >& sparse_pts);
+
+
+        // Add the state blocks to the problem
+        void addBlocks(ceres::Problem& problem, bool vel_only);
+
+        // Add the lidar residuals to the problem
+        void addLidarResiduals(
+                ceres::Problem& problem
+                , const std::vector<DataAssociation>& data_associations
+                , const std::vector<std::shared_ptr<std::vector<Pointd> > >& pts
+                , const std::vector<std::shared_ptr<std::vector<Pointd> > >& sparse_pts
+                , const State& state
+                );
+        
+
+
+        // Helper function to print the current state
+        void printState();
+        void logState();
+
+
+        // Prepare the state blocks for the next optimisation
+        void prepareNextState(const State& state);
+
+        // Update the current pose
+        void updateCurrentPose(const int64_t t0, const int64_t t1);
+
+        // Publish the odometry results and launch the point cloud correction/publishing thread
+        void publishResults(const State& state);
+
+        // Correct the point cloud chunks and publish them
+        void correctAndPublishPc(
+            const std::vector<std::shared_ptr<std::vector<Pointd> > > pc_chunks,
+            const std::vector<int64_t> pc_chunks_t,
+            const State state,
+            const std::vector<Vec3> state_blocks,
+            const Vec7 state_calib,
+            const double time_offset,
+            const bool dense = false);
+
+
+
+        // To check if useful        
+        // Helper function to project points with R and t
         std::vector<std::shared_ptr<std::vector<Pointd> > > projectPoints(
             const std::vector<std::shared_ptr<std::vector<Pointd> > >& pts,
             const Vec3& pos,
             const Vec3& rot);
 
-        std::vector<DataAssociation> findDataAssociations(
-            const std::set<int>& types,
-            const std::shared_ptr<std::vector<Pointd> >& features,
-            const int pc_id,
-            const std::vector<std::shared_ptr<std::vector<Pointd> > >& tragets,
-            const std::vector<int>& target_ids);
-
-
-        std::tuple<std::vector<std::shared_ptr<std::vector<Pointd> > >, ugpm::ImuData> getDataForOptimisation();
-
-        void initState(const ugpm::ImuData& imu_data);
-
-        void addBlocks(ceres::Problem& problem);
-
-        void addBlockPriors(ceres::Problem& problem);
-
-        std::vector<DataAssociation> getAllAssociations(
-                const std::set<int>& types
-                , const std::vector<std::shared_ptr<std::vector<Pointd> > >& pts);
-
-        std::vector<DataAssociation> filterDataAssociations(const std::vector<DataAssociation>& association_in, const std::vector<std::shared_ptr<std::vector<Pointd> > >& pts);
-
-        void addLidarResiduals(
-                ceres::Problem& problem
-                , const std::vector<DataAssociation>& data_associations
-                , const std::vector<std::shared_ptr<std::vector<Pointd> > >& pts
-                , const State& state
-                );
-        
-
-        void createProblemAssociateAndOptimise(
-                const std::vector<std::shared_ptr<std::vector<Pointd> > >& pts
-                , const State& state
-                , const std::set<int>& types
-                , const int nb_iter=50);
-
-
-        void printState();
-
         void prepareSubmap(const State state, const std::vector<std::shared_ptr<std::vector<Pointd> > > pcs, const std::vector<double> pcs_t, std::vector<Vec3> state_blocks, Vec7 state_calib, double time_offset);
 
-        void prepareNextState(const State& state);
 
         // For DEBUG
         void visualiseDataAssociation(const std::vector<DataAssociation>& data_association);

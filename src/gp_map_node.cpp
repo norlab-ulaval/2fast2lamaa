@@ -1,8 +1,9 @@
 #include "rclcpp/rclcpp.hpp"
-#include "lice/map_distance_field.h"
 #include "lice/ros_utils.h"
 #include "lice/utils.h"
 #include "lice/math_utils.h"
+#include "lice/pointcloud_utils.h"
+#include "lice/submap_manager.h"
 
 #include <memory>
 #include <thread>
@@ -19,6 +20,8 @@
 #include "ffastllamaa/srv/query_dist_field.hpp"
 
 #include <sys/stat.h>
+
+#include <fstream>
 
 
 bool folderExists(const std::string& folderPath) {
@@ -45,24 +48,28 @@ class GpMapNode: public rclcpp::Node
         GpMapNode()
             : Node("gp_map")
         {
-            MapDistFieldOptions options;
 
-            double voxel_size = readRequiredFieldDouble(this, "voxel_size");
-            options.cell_size = voxel_size;
-            downsample_size_ = readFieldDouble(this, "voxel_size_factor_for_registration", 5.0) * voxel_size;
-            half_voxel_size_sq_ = std::pow(voxel_size / 2.0,2);
+            // Read the parameters for options
+            voxel_size_ = readRequiredFieldDouble(this, "voxel_size");
+            MapDistFieldOptions options;
+            options.cell_size = voxel_size_;
+            downsample_size_ = readFieldDouble(this, "voxel_size_factor_for_registration", 5.0) * voxel_size_;
             options.neighborhood_size = readRequiredFieldInt(this, "neighbourhood_size");
 
             register_ = readFieldBool(this, "register", true);
-            bool with_prior = readRequiredFieldBool(this, "with_prior");
-            with_prior_ = with_prior;
+            bool with_init_guess = readRequiredFieldBool(this, "with_init_guess");
+            with_init_guess_ = with_init_guess;
             approximate_ = readFieldBool(this, "register_with_approximate_field", false);
+            options.edge_field = readFieldBool(this, "use_edge_field", true);
+            use_edge_field_ = options.edge_field;
 
             map_publish_period_ = readFieldDouble(this, "map_publish_period", 1.0);
 
             options.use_temporal_weights = readFieldBool(this, "use_temporal_weights", false);
 
             options.free_space_carving_radius = readFieldDouble(this, "free_space_carving_radius", -1.0);
+
+            localization_ = readFieldBool(this, "localization_only", false);
 
             max_nb_pts_ = readFieldInt(this, "max_num_pts_for_registration", 4000);
 
@@ -74,63 +81,113 @@ class GpMapNode: public rclcpp::Node
             double min_range = readRequiredFieldDouble(this, "min_range");
             options.min_range = min_range;
             options.max_range = readFieldDouble(this, "max_range", 1000.0);
-            min_range_ = min_range;
-            max_range_ = options.max_range;
 
             key_framing_ = readFieldBool(this, "key_framing", false);
             key_framing_dist_thr_ = readFieldDouble(this, "key_framing_dist_thr", 1.0);
             key_framing_rot_thr_ = readFieldDouble(this, "key_framing_rot_thr", 0.1);
             key_framing_time_thr_ = readFieldDouble(this, "key_framing_time_thr", 1.0);
 
-            map_path_ = readFieldString(this, "map_path", "");
-            map_path_ = map_path_ + (map_path_.back() == '/' ? "" : "/") + "map.ply";
-            // If folder does not exist, create it
-            std::string folder = map_path_.substr(0, map_path_.find_last_of("/"));
-            if(!folderExists(folder))
+
+            std::string map_path = readRequiredFieldString(this, "map_path");
+            bool reverse_path = false;
+            bool using_submaps = readFieldBool(this, "using_submaps", false);
+
+            if(readFieldBool(this, "write_scans", false))
             {
-                if(!createFolder(folder))
+                options.scan_folder = map_path;
+                if(options.scan_folder.back() != '/')
                 {
-                    RCLCPP_ERROR(this->get_logger(), "Could not create folder: %s for map output", folder.c_str());
+                    options.scan_folder += "/";
+                }
+                options.scan_folder += "scans/";
+                // Create the folder if it does not exist
+                if(folderExists(options.scan_folder))
+                {
+                    // Remove the folder and its contents
+                    std::filesystem::remove_all(options.scan_folder);
+                }
+                if(!createFolder(options.scan_folder))
+                {
+                    RCLCPP_ERROR(this->get_logger(), "Could not create folder: %s for scan output", options.scan_folder.c_str());
                     return;
                 }
-                RCLCPP_INFO(this->get_logger(), "Created folder: %s for map output", folder.c_str());
+                RCLCPP_INFO(this->get_logger(), "Created folder: %s for scan output", options.scan_folder.c_str());
+            }
+
+            if(localization_)
+            {
+                if(using_submaps)
+                {
+                    reverse_path = readRequiredFieldBool(this, "reverse_path");
+                }
+                double init_pose_x = readFieldDouble(this, "init_pose_x", 0.0);
+                double init_pose_y = readFieldDouble(this, "init_pose_y", 0.0);
+                double init_pose_z = readFieldDouble(this, "init_pose_z", 0.0);
+                double init_pose_rx = readFieldDouble(this, "init_pose_rx", 0.0);
+                double init_pose_ry = readFieldDouble(this, "init_pose_ry", 0.0);
+                double init_pose_rz = readFieldDouble(this, "init_pose_rz", 0.0);
+
+                init_guess_ = Mat4::Identity();
+                init_guess_.block<3,1>(0,3) = Vec3(init_pose_x, init_pose_y, init_pose_z);
+                init_guess_.block<3,3>(0,0) = expMap(Vec3(init_pose_rx, init_pose_ry, init_pose_rz));
+            }
+
+            // If folder does not exist, create it
+            if(!folderExists(map_path))
+            {
+                if(!createFolder(map_path))
+                {
+                    RCLCPP_ERROR(this->get_logger(), "Could not create folder: %s for map output", map_path.c_str());
+                    return;
+                }
+                RCLCPP_INFO(this->get_logger(), "Created folder: %s for map output", map_path.c_str());
             }
 
 
-            options.output_normals = readFieldBool(this, "output_normals", false);
-            options.output_mesh = readFieldBool(this, "output_mesh", false);
-            options.clean_mesh_threshold = readFieldDouble(this, "clean_mesh_threshold", 2.0*voxel_size);
-            options.meshing_point_per_node = readFieldDouble(this, "meshing_point_per_node", 2.0);
-            options.poisson_weighted = readFieldBool(this, "poisson_weighted", false);
 
+            options.over_reject = readFieldBool(this, "over_reject", false);
+            options.last_scan_carving = readFieldBool(this, "last_scan_carving", false);
 
             pc_type_internal_ = readFieldBool(this, "point_cloud_internal_type", false);
 
-            map_ = std::make_unique<MapDistField>(options);
+            loss_scale_ = readFieldDouble(this, "loss_function_scale", 0.5);
             
+            // Write the first line of the trajectory file
+            traj_path_ = map_path + "/trajectory.csv";
+            createTrajectoryFile(traj_path_);
 
 
-            if(with_prior)
+
+            // Create the ROS related objects
+            if(with_init_guess)
             {
                 pc_sub_.subscribe(this, "/points_input");
                 pose_sub_.subscribe(this, "/pose_input");
-                sync_ = std::make_shared<message_filters::TimeSynchronizer<sensor_msgs::msg::PointCloud2, geometry_msgs::msg::TransformStamped>>(pc_sub_, pose_sub_, 20);
+                int queue_size = 20;
+                sync_ = std::make_shared<message_filters::TimeSynchronizer<sensor_msgs::msg::PointCloud2, geometry_msgs::msg::TransformStamped>>(pc_sub_, pose_sub_, queue_size);
                 sync_->registerCallback(std::bind(&GpMapNode::pcPriorCallback, this, std::placeholders::_1, std::placeholders::_2));
             }
             else
             {
                 sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>("/points_input", 1, std::bind(&GpMapNode::pcCallback, this, std::placeholders::_1));
             }
-
-
-
             map_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/map", 10);
-
             odom_map_correction_pub_ = this->create_publisher<geometry_msgs::msg::TransformStamped>("/odom_map_correction", 10);
-
+            pose_pub_ = this->create_publisher<geometry_msgs::msg::TransformStamped>("/scan_to_map_pose", 10);
             map_publish_thread_ = std::make_unique<std::thread>(&GpMapNode::mapPublishThread, this);
-
             query_dist_field_srv_ = this->create_service<ffastllamaa::srv::QueryDistField>("/query_dist_field", std::bind(&GpMapNode::queryDistFieldCallback, this, std::placeholders::_1, std::placeholders::_2));
+
+
+
+            // Create the map manager
+            double submap_length = readFieldDouble(this, "submap_length", -1.0);
+            double submap_overlap = readFieldDouble(this, "submap_overlap", 0.1);
+            if(!localization_)
+            {
+                using_submaps = (submap_length > 0.0);
+            }
+            std::cout << "\n\n[GP MAP NODE] Using submaps: " << (using_submaps ? "true" : "false") << std::endl;
+            map_ = std::make_shared<SubmapManager>(options, localization_, using_submaps, submap_length, submap_overlap, map_path, reverse_path);
 
         }
 
@@ -141,7 +198,7 @@ class GpMapNode: public rclcpp::Node
         }
 
     private:
-
+        std::shared_ptr<SubmapManager> map_ = nullptr;
         double map_publish_period_ = 1.0;
         bool key_framing_ = false;
         double key_framing_dist_thr_ = 1.0;
@@ -149,32 +206,33 @@ class GpMapNode: public rclcpp::Node
         double key_framing_time_thr_ = 1.0;
 
         double time_process_pc_sum_ = 0.0;
+        double time_process_pc_square_sum_ = 0.0;
         int time_process_pc_count_ = 0;
         double time_process_pc_max_ = 0.0;
 
-        double min_range_ = 1.0;
-        double max_range_ = 1000.0;
 
         size_t max_nb_pts_ = 4000;
+        double voxel_size_ = 0.2;
 
-        std::string map_path_ = "";
+        std::string traj_path_ = "";
 
-        std::unique_ptr<MapDistField> map_;
+        bool localization_ = false;
+        bool use_edge_field_ = true;
+
         std::mutex map_mutex_;
 
-        // Sub for time synchronised prior
+
+        // Sub for time synchronised init_guess
         message_filters::Subscriber<sensor_msgs::msg::PointCloud2> pc_sub_;
         message_filters::Subscriber<geometry_msgs::msg::TransformStamped> pose_sub_;
         std::shared_ptr<message_filters::TimeSynchronizer<sensor_msgs::msg::PointCloud2, geometry_msgs::msg::TransformStamped>> sync_;
-
-        // Sub for no prior
+        // Sub for no init_guess
         rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_;
-
         // Global map publisher
         rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr map_pub_;
         rclcpp::Publisher<geometry_msgs::msg::TransformStamped>::SharedPtr odom_map_correction_pub_;
-
-
+        rclcpp::Publisher<geometry_msgs::msg::TransformStamped>::SharedPtr pose_pub_;
+        // Service to query the distance field
         rclcpp::Service<ffastllamaa::srv::QueryDistField>::SharedPtr query_dist_field_srv_;
 
 
@@ -184,15 +242,15 @@ class GpMapNode: public rclcpp::Node
         Mat4 current_pose_ = Mat4::Identity();
         
         Mat4 last_input_pose_ = Mat4::Identity();
-        Mat4 prior_ = Mat4::Identity();
+        Mat4 init_guess_ = Mat4::Identity();
         bool first_ = true;
 
         bool register_ = true;
+        double loss_scale_ = 0.5;
 
         bool approximate_ = false;
-        bool with_prior_ = false;
+        bool with_init_guess_ = false;
 
-        double half_voxel_size_sq_;
         double downsample_size_ = 0.4;
 
         std::atomic<bool> running_ = true;
@@ -204,11 +262,14 @@ class GpMapNode: public rclcpp::Node
         bool pc_type_internal_ = false;
         rclcpp::Time last_pc_time_;
         double key_framing_time_cumulated_ = 0.0;
+        double key_framing_dist_cumulated_ = 0.0;
 
         double DEBUG_query_time_sum_ = 0.0;
         int DEBUG_query_time_count_ = 0;
 
         double DEBUG_registration_time_sum_ = 0.0;
+        double DEBUG_registration_max_time_ = 0.0;
+        double DEBUG_registration_square_time_sum_ = 0.0;
         int DEBUG_registration_time_count_ = 0;
 
         std::unique_ptr<std::thread> map_publish_thread_;
@@ -246,190 +307,216 @@ class GpMapNode: public rclcpp::Node
 
 
 
-        void updateMap(const std::vector<Pointd> pts, const Mat4 trans, rclcpp::Time time)
+        void updateMap(const sensor_msgs::msg::PointCloud2::ConstSharedPtr msg, const Mat4 trans)
         {
-            if(first_)
-            {
-                last_input_pose_ = trans;
-                prior_ = trans;
-                first_ = false;
-
-                map_mutex_.lock();
-                map_->addPts(pts, current_pose_);
-                map_mutex_.unlock();
-
-                geometry_msgs::msg::TransformStamped temp_msg;
-                temp_msg.header.stamp = time;
-                temp_msg.header.frame_id = "map";
-                temp_msg.child_frame_id = "odom";
-                temp_msg.transform = mat4ToTransform(Mat4::Identity());
-                odom_map_correction_pub_->publish(temp_msg);
-                return;
-            }
-
             StopWatch sw;
-            if (register_)
-            {
-                Mat4 delta_trans = last_input_pose_.inverse() * trans;
-                last_input_pose_ = trans;
-                prior_ = prior_*delta_trans;
-
-                if(key_framing_)
-                {
-                    bool compute = false;
-                    double time_diff = (rclcpp::Time(time) - rclcpp::Time(last_pc_time_)).seconds();
-                    key_framing_time_cumulated_ += time_diff;
-                    if(key_framing_time_cumulated_ >= key_framing_time_thr_) compute = true;
-
-                    if(!compute)
-                    {
-                        auto [dist, rot_diff] = distanceBetweenTransforms(current_pose_, prior_);
-                        if( dist >= key_framing_dist_thr_ || rot_diff >= key_framing_rot_thr_) compute = true;
-                    }
-
-                    if(!compute) return;
-                }                
-                sw.start();
-                // Downsample the points
-                ankerl::unordered_dense::map<GridIndex, std::tuple<Vec3, Vec3, int> > pts_map;
-                for(const Pointd& pt: pts)
-                {
-                    if(!std::isfinite(pt.x) || !std::isfinite(pt.y) || !std::isfinite(pt.z)) continue;
-                    float range = pt.vec3f().norm();
-                    if( (range < min_range_) || (range > max_range_)) continue;
-
-                    GridIndex idx = {std::floor(pt.x / downsample_size_), std::floor(pt.y / downsample_size_), std::floor(pt.z / downsample_size_)};
-
-                    if(pts_map.find(idx) == pts_map.end())
-                    {
-                        pts_map[idx] = {pt.vec3(), pt.vec3(), 1};
-                    }
-                    else
-                    {
-                        std::tuple<Vec3, Vec3, int>& temp = pts_map[idx];
-                        std::get<1>(temp) = std::get<1>(temp) + pt.vec3();
-                        std::get<2>(temp)++;
-                    }
-                }
-                std::vector<Vec3> downsampled_pts;
-                for(const auto& kv: pts_map)
-                {
-                    downsampled_pts.push_back(std::get<1>(kv.second) / std::get<2>(kv.second));
-                }
-
-                // If the number of points is too high, randomly select a subset
-                if(downsampled_pts.size() > max_nb_pts_)
-                {
-                    std::vector<int> indexes = generateRandomIndexes(0, downsampled_pts.size(), max_nb_pts_);
-                    std::vector<Vec3> temp_pts;
-                    for(int idx: indexes)
-                    {
-                        temp_pts.push_back(downsampled_pts[idx]);
-                    }
-                    downsampled_pts = temp_pts;
-                }
-
-                sw.stop();
-                map_mutex_.lock();
-                sw.start();
-                if(!with_prior_)
-                {
-                    current_pose_ = map_->registerPts(downsampled_pts, current_pose_, pts[0].t, true, false);
-                    prior_ = current_pose_;
-                }
-                current_pose_ = map_->registerPts(downsampled_pts, prior_, pts[0].t, approximate_);
-                prior_ = current_pose_;
-                key_framing_time_cumulated_ = 0.0;
-                map_mutex_.unlock();
-
-                // Publish the odom to map correction
-                Mat4 odom_map_correction = current_pose_ * trans.inverse();
-                geometry_msgs::msg::TransformStamped odom_map_correction_msg;
-                odom_map_correction_msg.header.stamp = time;
-                odom_map_correction_msg.header.frame_id = "map";
-                odom_map_correction_msg.child_frame_id = "odom";
-                odom_map_correction_msg.transform = mat4ToTransform(odom_map_correction);
-                odom_map_correction_pub_->publish(odom_map_correction_msg);
-
-                double temp_time = sw.stop();
-                DEBUG_registration_time_sum_ += temp_time;
-                DEBUG_registration_time_count_++;
-                RCLCPP_INFO(this->get_logger(), "Registration time: %f ms, avg: %f ms", temp_time, DEBUG_registration_time_sum_/DEBUG_registration_time_count_);
-            }
-            else
-            {
-                current_pose_ = trans;
-            }
-
-            map_mutex_.lock();
-            sw.reset();
+            StopWatch sw2;
             sw.start();
-            // Add the points to the map
-            map_->addPts(pts, current_pose_);
-
-            map_mutex_.unlock();
-
-            double temp_time = sw.stop();
-            RCLCPP_INFO(this->get_logger(), "Time to add points to map: %f ms", temp_time);
-            counter_++;
-            last_pc_epoch_time_ = std::chrono::high_resolution_clock::now();
-        }
 
 
-        void pcPriorCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr pc_msg, const geometry_msgs::msg::TransformStamped::ConstSharedPtr odom_msg)
-        {
-            StopWatch sw;
-            sw.start();
-            if(first_)
-            {
-                last_pc_time_ = pc_msg->header.stamp;
-            }
-            else
-            {
-                double time_diff = (rclcpp::Time(pc_msg->header.stamp) - rclcpp::Time(last_pc_time_)).seconds();
-                if(time_diff < 0)
-                {
-                    RCLCPP_WARN(this->get_logger(), "Time diff is negative, skipping point cloud");
-                    return;
-                }
-            }
-            std::vector<Pointd> pts;
-            if(pc_type_internal_)
-            {
-                pts = pointCloud2MsgToPtsVecInternal(pc_msg);
-            }
-            else
-            {
-                bool rubish0, rubish1;
-                std::tie(pts, rubish0, rubish1) = pointCloud2MsgToPtsVec<double>(pc_msg, 1.0, false);
-            }
-            updateMap(pts, transformToMat4(odom_msg->transform), pc_msg->header.stamp);
-            last_pc_time_ = pc_msg->header.stamp;
+            rclcpp::Time time(msg->header.stamp);
+            bool add_to_map = false;
 
-            double time_ms = sw.stop();
-            time_process_pc_sum_ += time_ms;
-            time_process_pc_count_++;
-            time_process_pc_max_ = std::max(time_process_pc_max_, time_ms);
-            RCLCPP_INFO(this->get_logger(), "Total time to process point cloud: %f ms, avg: %f ms, max: %f ms", time_ms, time_process_pc_sum_/time_process_pc_count_, time_process_pc_max_);
-        }
-
-
-        void pcCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg)
-        {
-            StopWatch sw;
+            // Initialize on the first point cloud
             if(first_)
             {
                 last_pc_time_ = msg->header.stamp;
+                last_input_pose_ = trans;
+                add_to_map = true;
             }
-            else
+            // Check if the point cloud is too old
+            if(time < last_pc_time_)
             {
-                double time_diff = (rclcpp::Time(msg->header.stamp) - rclcpp::Time(last_pc_time_)).seconds();
-                if(time_diff < 0)
-                {
-                    RCLCPP_WARN(this->get_logger(), "Time diff is negative, skipping point cloud");
-                    return;
-                }
+                RCLCPP_WARN(this->get_logger(), "Time diff is negative, skipping point cloud");
+                return;
             }
+
+            // Check if the map need to be updated
+            if(!first_)
+            {
+                // Check if we need to update the map
+                add_to_map = needMapUpdate(time, trans);
+            }
+            updateInitGuess(trans);
+
+
+            if(add_to_map)
+            {
+                // First convert the point cloud message to a vector of points
+                std::vector<Pointd> pts = getPcFromMsg(msg);
+
+                if(localization_ && first_)
+                {
+                    // Downsample the points
+                    std::vector<Pointd> downsampled_pts = downsamplePointCloud<double>(pts, downsample_size_, max_nb_pts_, true);
+
+                    map_mutex_.lock();
+                    current_pose_ = map_->registerPts(downsampled_pts, init_guess_, getTimeNs(time), true, 10.0, 10.0);
+                    current_pose_ = map_->registerPts(downsampled_pts, current_pose_, getTimeNs(time), true, 5.0, 10.0);
+                    current_pose_ = map_->registerPts(downsampled_pts, current_pose_, getTimeNs(time), true, 2.0, 10.0);
+                    current_pose_ = map_->registerPts(downsampled_pts, current_pose_, getTimeNs(time), approximate_, loss_scale_);
+                    init_guess_ = current_pose_;
+                    map_mutex_.unlock();
+                }
+                else if(register_ && !first_)
+                {
+                    sw2.start();
+
+                    // Downsample the points
+                    std::vector<Pointd> downsampled_pts;
+                    if(use_edge_field_)
+                    {
+                        downsampled_pts = downsamplePointCloudPerType<double>(pts, downsample_size_, max_nb_pts_);
+                    }
+                    else
+                    {
+                        downsampled_pts = downsamplePointCloud<double>(pts, downsample_size_, max_nb_pts_, false);
+                    }
+
+
+                    map_mutex_.lock();
+                    if(!with_init_guess_)
+                    {
+                        current_pose_ = map_->registerPts(downsampled_pts, current_pose_, getTimeNs(time), true, 10.0*loss_scale_);
+                        init_guess_ = current_pose_;
+                    }
+                    //current_pose_ = map_->registerPts(downsampled_pts, init_guess_, getTimeNs(time), true, 2*loss_scale_, 7);
+                    current_pose_ = map_->registerPts(downsampled_pts, init_guess_, getTimeNs(time), approximate_, loss_scale_, 25);
+                    init_guess_ = current_pose_;
+                    map_mutex_.unlock();
+
+                    publishOdomMapCorrection(time, trans);
+
+
+                    ///// DEBUG LOGGING /////
+                    double temp_time = sw2.stop();
+                    DEBUG_registration_time_sum_ += temp_time;
+                    DEBUG_registration_square_time_sum_ += temp_time * temp_time;
+                    DEBUG_registration_max_time_ = std::max(DEBUG_registration_max_time_, temp_time);
+                    DEBUG_registration_time_count_++;
+                    RCLCPP_INFO(this->get_logger(), "Registration time: %f ms, avg: %f ms, stddev: %f ms, max: %f ms",
+                                temp_time,
+                                DEBUG_registration_time_sum_ / DEBUG_registration_time_count_,
+                                std::sqrt((DEBUG_registration_square_time_sum_ / DEBUG_registration_time_count_) - std::pow(DEBUG_registration_time_sum_ / DEBUG_registration_time_count_, 2)),
+                                DEBUG_registration_max_time_);
+                    ///// END DEBUG LOGGING /////
+
+                }
+                else
+                {
+                    current_pose_ = trans;
+                }
+                publishPose(time, current_pose_);
+
+
+
+                map_mutex_.lock();
+                sw2.reset();
+                sw2.start();
+                if(!localization_ && add_to_map)
+                {
+                    map_->addPts(pts, current_pose_, getTimeNs(time));
+                }
+                map_mutex_.unlock();
+
+
+                double temp_time = sw2.stop();
+                RCLCPP_INFO(this->get_logger(), "Time to add points to map: %f ms", temp_time);
+                counter_++;
+                last_pc_epoch_time_ = std::chrono::high_resolution_clock::now();
+            }
+
+
+
+            // Log the pose to the trajectory file
+            logPoseToFile(traj_path_, init_guess_, time);
+
+
+            double time_ms = sw.stop();
+            time_process_pc_sum_ += time_ms;
+            time_process_pc_square_sum_ += time_ms * time_ms;
+            time_process_pc_count_++;
+            time_process_pc_max_ = std::max(time_process_pc_max_, time_ms);
+            RCLCPP_INFO(this->get_logger(), "Total time to process point cloud: %f ms, avg: %f ms, stddev: %f ms, max: %f ms",
+                        time_ms,
+                        time_process_pc_sum_ / time_process_pc_count_,
+                        std::sqrt((time_process_pc_square_sum_ / time_process_pc_count_) - std::pow(time_process_pc_sum_ / time_process_pc_count_, 2)),
+                        time_process_pc_max_);
+
+
+
+            last_input_pose_ = trans;
+            last_pc_time_ = msg->header.stamp;
+            first_ = false;
+        }
+
+
+
+        void publishOdomMapCorrection(const rclcpp::Time& time, const Mat4& trans)
+        {
+            Mat4 odom_map_correction = current_pose_ * trans.inverse();
+            geometry_msgs::msg::TransformStamped odom_map_correction_msg;
+            odom_map_correction_msg.header.stamp = time;
+            odom_map_correction_msg.header.frame_id = "map";
+            odom_map_correction_msg.child_frame_id = "odom";
+            odom_map_correction_msg.transform = mat4ToTransform(odom_map_correction);
+            odom_map_correction_pub_->publish(odom_map_correction_msg);
+        }
+
+        void publishPose(const rclcpp::Time& time, const Mat4& trans)
+        {
+            geometry_msgs::msg::TransformStamped pose_msg;
+            pose_msg.header.stamp = time;
+            pose_msg.header.frame_id = "map";
+            pose_msg.child_frame_id = "lidar";
+            pose_msg.transform = mat4ToTransform(trans);
+            pose_pub_->publish(pose_msg);
+        }
+
+        void updateInitGuess(const Mat4& trans)
+        {
+            Mat4 delta_trans = last_input_pose_.inverse() * trans;
+            init_guess_ = init_guess_*delta_trans;
+        }
+        
+
+        bool needMapUpdate(const rclcpp::Time& time, const Mat4& trans)
+        {
+            if(!key_framing_)
+            {
+                return true; // No key framing, always update
+            }
+
+            bool need_update = false;
+            // Update to pose init_guess if there is registering
+            Mat4 delta_trans = last_input_pose_.inverse() * trans;
+            // Check if we need to register the point cloud if key framing is enabled
+            if(key_framing_)
+            {
+                double time_diff = (rclcpp::Time(time) - rclcpp::Time(last_pc_time_)).seconds();
+                key_framing_time_cumulated_ += time_diff;
+                key_framing_dist_cumulated_ += delta_trans.block<3, 1>(0, 3).norm();
+                if(key_framing_time_cumulated_ >= key_framing_time_thr_ || key_framing_dist_cumulated_ >= key_framing_dist_thr_)
+                {
+                    need_update = true;
+                }
+
+                auto [dist, rot_diff] = distanceBetweenTransforms(current_pose_, init_guess_);
+                if( dist >= key_framing_dist_thr_ || rot_diff >= key_framing_rot_thr_)
+                {
+                    need_update = true;
+                }
+            }   
+            if(need_update)
+            {
+                key_framing_time_cumulated_ = 0.0;
+                key_framing_dist_cumulated_ = 0.0;
+            }
+            return need_update;
+        }
+
+        std::vector<Pointd> getPcFromMsg(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& msg)
+        {
             std::vector<Pointd> pts;
             if(pc_type_internal_)
             {
@@ -438,16 +525,20 @@ class GpMapNode: public rclcpp::Node
             else
             {
                 bool rubish0, rubish1;
-                std::tie(pts, rubish0, rubish1) = pointCloud2MsgToPtsVec<double>(msg, 1.0, false);
+                std::tie(pts, rubish0, rubish1) = pointCloud2MsgToPtsVec<double>(msg, 1e-9, false);
             }
-            updateMap(pts, current_pose_, msg->header.stamp);
-            last_pc_time_ = msg->header.stamp;
+            return pts;
+        }
 
-            double time_ms = sw.stop();
-            time_process_pc_sum_ += time_ms;
-            time_process_pc_count_++;
-            time_process_pc_max_ = std::max(time_process_pc_max_, time_ms);
-            RCLCPP_INFO(this->get_logger(), "Total time to process point cloud: %f ms, avg: %f ms, max: %f ms", time_ms, time_process_pc_sum_/time_process_pc_count_, time_process_pc_max_);
+        void pcPriorCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr pc_msg, const geometry_msgs::msg::TransformStamped::ConstSharedPtr odom_msg)
+        {
+            updateMap(pc_msg, transformToMat4(odom_msg->transform));
+        }
+
+
+        void pcCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg)
+        {
+            updateMap(msg, current_pose_);
         }
         
 
@@ -466,7 +557,7 @@ class GpMapNode: public rclcpp::Node
                     {
                         RCLCPP_INFO(this->get_logger(), "Publishing map points");
                         map_mutex_.lock();
-                        std::vector<Pointf> pts = map_->getPts();
+                        std::vector<Pointd> pts = map_->getPts();
                         map_mutex_.unlock();
                         sensor_msgs::msg::PointCloud2 map_msg = ptsVecToPointCloud2MsgInternal(pts, "map", this->now());
                         map_pub_->publish(map_msg);
@@ -474,15 +565,14 @@ class GpMapNode: public rclcpp::Node
                 }
 
                 // Check if the last point cloud is too old
-                if((map_path_ != "") && (last_write_counter_ != counter))
+                if((last_write_counter_ != counter))
                 {
                     std::chrono::time_point<std::chrono::high_resolution_clock> last_time_temp = last_pc_epoch_time_;
-                    if((start-last_time_temp) > std::chrono::duration<double>(2.0*key_framing_time_thr_))
+                    if(((start-last_time_temp) > std::chrono::duration<double>(5.0*key_framing_time_thr_)) && !localization_)
                     {
                         last_write_counter_ = counter;
-                        RCLCPP_INFO_STREAM(this->get_logger(), "Writing map to file: " << map_path_);
                         map_mutex_.lock();
-                        map_->writeMap(map_path_);
+                        map_->writeMap();
                         map_mutex_.unlock();
                     }
                 }
@@ -491,6 +581,50 @@ class GpMapNode: public rclcpp::Node
                 auto end = std::chrono::high_resolution_clock::now();
                 std::chrono::duration<double> elapsed = end - start;
                 std::this_thread::sleep_for(std::chrono::duration<double>(map_publish_period_) - elapsed);
+            }
+        }
+
+        void createTrajectoryFile(const std::string& path)
+        {
+            // Create the trajectory file if it does not exist
+            std::ofstream trajectory_file(path, std::ios::out | std::ios::trunc);
+            if (trajectory_file.is_open())
+            {
+                trajectory_file << "timestamp, x, y, z, r0, r1, r2" 
+                                << std::endl; // Header line
+                trajectory_file.close();
+                RCLCPP_INFO(this->get_logger(), "Created trajectory file: %s", path.c_str());
+            }
+            else
+            {
+                RCLCPP_ERROR(this->get_logger(), "Could not create trajectory file: %s", path.c_str());
+                return;
+            }
+        }
+
+        void logPoseToFile(const std::string& path, const Mat4 & pose, const rclcpp::Time & time)
+        {
+            // Log the trajectory estimate
+            std::ofstream trajectory_file(path, std::ios::out | std::ios::app);
+            if (trajectory_file.is_open())
+            {
+                Mat3 rot_mat = pose.block<3,3>(0,0);
+                Vec3 rot_vec = logMap(rot_mat);
+                trajectory_file << std::fixed << time.nanoseconds() << ", "
+                                << pose(0,3) << ", "
+                                << pose(1,3) << ", "
+                                << pose(2,3) << ", "
+                                << rot_vec(0) << ", "
+                                << rot_vec(1) << ", "
+                                << rot_vec(2)
+                                << std::endl; // Write the current pose to the trajectory file
+                trajectory_file.close();
+                RCLCPP_INFO(this->get_logger(), "Updated trajectory file: %s", path.c_str());
+            }
+            else
+            {
+                RCLCPP_ERROR(this->get_logger(), "Could not open trajectory file: %s", path.c_str());
+                return;
             }
         }
 

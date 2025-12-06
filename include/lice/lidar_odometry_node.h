@@ -9,6 +9,7 @@
 
 #include "sensor_msgs/msg/point_cloud2.hpp"
 #include "geometry_msgs/msg/transform_stamped.hpp"
+#include "geometry_msgs/msg/twist_stamped.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "tf2_ros/transform_broadcaster.h"
 #include "sensor_msgs/msg/imu.hpp"
@@ -24,12 +25,11 @@ class LidarOdometryNode : public rclcpp::Node
     public:
         LidarOdometryNode();
 
-        void publishTransform(const double t, const Vec3& pos, const Vec3& rot);
-        void publishDeltaTransform(const double t, const Vec3& dp, const Vec3& dr);
-        void publishPc(const double t, const std::vector<Pointf>& pc);
-        void publishPcFiltered(const double t, const std::vector<Pointf>& pc_static, const std::vector<Pointf>& pc_dynamic, const std::vector<Pointf>& pc_unsure);
-        void publishGlobalOdom(const double t, const Vec3& pos, const Vec3& rot, const Vec3& vel, const Vec3& ang_vel);
+        void publishTransform(const int64_t t, const Vec3& pos, const Vec3& rot);
+        void publishPc(const int64_t t, const std::vector<Pointd>& pc);
+        void publishGlobalOdom(const int64_t t, const Vec3& pos, const Vec3& rot, const Vec3& vel, const Vec3& ang_vel);
 
+        void publishPcDense(const int64_t t, const std::vector<Pointd>& pc);
     private:
         std::shared_ptr<LidarOdometry> lidar_odometry_;
 
@@ -37,45 +37,42 @@ class LidarOdometryNode : public rclcpp::Node
         rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr gyr_sub_;
         rclcpp::Subscription<geometry_msgs::msg::TransformStamped>::SharedPtr odom_map_correction_sub_;
 
-        message_filters::Subscriber<sensor_msgs::msg::PointCloud2> feature_sub_;
-        message_filters::Subscriber<sensor_msgs::msg::PointCloud2> pc_sub_;
+        rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr lidar_sub_;
 
         rclcpp::Publisher<geometry_msgs::msg::TransformStamped>::SharedPtr odom_pub_;
         rclcpp::Publisher<geometry_msgs::msg::TransformStamped>::SharedPtr global_odom_pub_;
         rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_twist_pub_;
+        rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr odom_twist_only_pub_;
         rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pc_pub_;
 
+        rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pc_dense_pub_;
 
-        rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pc_static_pub_;
-        rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pc_dynamic_pub_;
-        rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pc_unsure_pub_;
 
-        std::shared_ptr<message_filters::TimeSynchronizer<sensor_msgs::msg::PointCloud2, sensor_msgs::msg::PointCloud2>> sync_;
 
         std::unique_ptr<tf2_ros::TransformBroadcaster> br_;
 
         std::mutex mutex_br_;
         std::mutex mutex_pc_;
-        std::mutex mutex_pc_filtered_;
 
-        rclcpp::Time first_t_;
-        rclcpp::Time first_acc_t_;
-        rclcpp::Time first_gyr_t_;
-        bool first_ = true;
-        bool first_acc_ = true;
-        bool first_gyr_ = true;
         int scan_count_ = 0;
         bool invert_imu_ = false;
+        double pc_scale_ = 1.0;
 
+        bool first_gyr_ = true;
+        bool first_acc_ = true;
         rclcpp::Time last_gyr_time_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
         rclcpp::Time last_acc_time_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
 
         bool acc_in_m_s2_ = true;
+        double time_field_multiplier_ = 1e-9; // Default to seconds
+        bool absolute_time_ = false;
 
         geometry_msgs::msg::TransformStamped::SharedPtr odom_map_correction_msg_;
 
+        std::set<int> broken_channels_;
 
-        void pcCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr feature_msg, const sensor_msgs::msg::PointCloud2::ConstSharedPtr pc_msg);
+
+        void pcCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr pc_msg);
 
         void accCallback(const sensor_msgs::msg::Imu::SharedPtr msg);
 

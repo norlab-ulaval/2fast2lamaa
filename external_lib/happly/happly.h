@@ -1549,7 +1549,7 @@ public:
    * @param vertexPositions A vector of vertex positions
    */
   template <typename T>
-  void addVertexPositions(std::vector<Eigen::Vector<T, 3> >& vertexPositions) {
+  void addVertexPositions(const std::vector<Eigen::Vector<T, 3> >& vertexPositions) {
 
     std::string vertexName = "vertex";
     size_t N = vertexPositions.size();
@@ -1579,7 +1579,7 @@ public:
    *
    * @param colors A vector of vertex colors (unsigned chars [0,255]).
    */
-  void addVertexColors(std::vector<std::array<unsigned char, 3>>& colors) {
+  void addVertexColors(const std::vector<std::array<unsigned char, 3>>& colors) {
 
     std::string vertexName = "vertex";
     size_t N = colors.size();
@@ -1603,6 +1603,20 @@ public:
     getElement(vertexName).addProperty<unsigned char>("red", r);
     getElement(vertexName).addProperty<unsigned char>("green", g);
     getElement(vertexName).addProperty<unsigned char>("blue", b);
+  }
+
+  void addVertexScalar(const std::vector<double>& scalar, const std::string& name) {
+
+    std::string vertexName = "vertex";
+    size_t N = scalar.size();
+
+    // Create the element
+    if (!hasElement(vertexName)) {
+      addElement(vertexName, N);
+    }
+
+    // Store
+    getElement(vertexName).addProperty<double>(name, scalar);
   }
 
 
@@ -1633,7 +1647,7 @@ public:
   }
 
   template <typename T>
-  void addVertexNormals(std::vector<Eigen::Vector<T, 3>>& normals) {
+  void addVertexNormals(const std::vector<Eigen::Vector<T, 3>>& normals) {
 
     std::string vertexName = "vertex";
     size_t N = normals.size();
@@ -1737,7 +1751,7 @@ public:
   }
 
   template <typename T>
-  void addFaceIndices(std::vector<Eigen::Vector<T,3>>& indices) {
+  void addFaceIndices(const std::vector<Eigen::Vector<T,3>>& indices) {
 
     std::string faceName = "face";
     size_t N = indices.size();

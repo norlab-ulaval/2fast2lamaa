@@ -8,6 +8,9 @@
 
 // Types for the lidar features: 1: planar, 2: edge, 3: rough
 const std::set<int> kTypes = {1, 2, 3};
+const int kSkyPoint = 101;
+const int kNonSkyPoint = 100;
+const int kInvalidPoint = 200;
 
 
 
@@ -57,6 +60,7 @@ typedef Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> M
 typedef Eigen::Matrix<double, 3, Eigen::Dynamic> Mat3X;
 typedef Eigen::Matrix<double, 2, Eigen::Dynamic> Mat2X;
 
+typedef std::tuple<int, int, int> GridIndex;
 
 const int kNoChannel = -10000;
 
@@ -66,19 +70,17 @@ struct PointTemplated
     T x = 0.0;
     T y = 0.0;
     T z = 0.0;
-    double t = 0.0;
+    int64_t t = 0.0;
     float i = 0.0;
     int channel = 0;
     int type = 0;
-    int scan_id = 0;
-    unsigned char dynamic = 2;
-    bool has_color = false;
     uint8_t r = 0;
     uint8_t g = 0;
     uint8_t b = 0;
+    bool has_color = false;
 
 
-    PointTemplated(const T _x, const T _y, const T _z, const double _t, const float _intensity=0.0, const int _channel=0, const int _type=0, const int _scan_id=0, const unsigned char _dynamic=2)
+    PointTemplated(const T _x, const T _y, const T _z, const int64_t _t, const float _intensity=0.0, const int _channel=0, const int _type=0)
         : x(_x)
         , y(_y)
         , z(_z)
@@ -86,11 +88,9 @@ struct PointTemplated
         , i(_intensity)
         , channel(_channel)
         , type(_type)
-        , scan_id(_scan_id)
-        , dynamic(_dynamic)
     {
     }
-    PointTemplated(const Vec3& pt, const double _t, const double _intensity=0.0, const int _channel=0, const int _type=0, const int _scan_id=0, const unsigned char _dynamic=2)
+    PointTemplated(const Vec3& pt, const int64_t _t, const double _intensity=0.0, const int _channel=0, const int _type=0)
         : x(pt[0])
         , y(pt[1])
         , z(pt[2])
@@ -98,8 +98,6 @@ struct PointTemplated
         , i(_intensity)
         , channel(_channel)
         , type(_type)
-        , scan_id(_scan_id)
-        , dynamic(_dynamic)
     {
     }
 
@@ -119,12 +117,21 @@ struct PointTemplated
     {
         return Vec3f((float)x, (float)y, (float)z);
     }
+    Vec3 vec3d() const
+    {
+        return Vec3((double)x, (double)y, (double)z);
+    }
 
     void setVec3(const Vec3& pt)
     {
         x = pt[0];
         y = pt[1];
         z = pt[2];
+    }
+
+    int64_t nanos() const
+    {
+        return t;
     }
 };
 
@@ -135,10 +142,10 @@ typedef PointTemplated<float> Pointf;
 
 struct DataAssociation
 {
+    std::vector<std::pair<int, int> > target_ids;
     int pc_id;
     int feature_id;
     int type; // 0: planar, 1: edge, 2: rough
-    std::vector<std::pair<int, int> > target_ids;
 
     std::pair<Vec3, std::vector<Vec3>> getPointVectors(const std::vector<std::shared_ptr<std::vector<Pointd> > >& features) const
     {
