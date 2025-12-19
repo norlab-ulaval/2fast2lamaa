@@ -10,7 +10,12 @@ from rclpy.serialization import deserialize_message
 
 def main():
     path = "boreas-2024-12-03-12-54"
-    imu = 'dmu' # 'dmu' or 'applanix'
+
+    year = path.split("-")[1]
+    if int(year) < 2024:
+        imu = 'applanix' # 'applanix' (the applanix imu is only for legacy on the original boreas dataset)
+    else:
+        imu = 'dmu' # 'dmu' imu for boreas datasets from 2024 and later
     processBags(path, imu)
 
 def processBags(path, imu):
@@ -26,9 +31,9 @@ def processBags(path, imu):
 
 
     # Load the IMU data from the applanix/imu.txt file
-    print("Loading IMU data from applanix/dmu_imu.csv")
+    print("Loading IMU data from imu/dmu_imu.csv")
     if imu == 'dmu':
-        imu_df = pd.read_csv(os.path.join(path, "applanix", "dmu_imu.csv"), sep=",")
+        imu_df = pd.read_csv(os.path.join(path, "imu", "dmu_imu.csv"), sep=",")
         # Keep only the columns we need
         imu_df = imu_df[["time", 'wx', 'wy', 'wz', 'ax', 'ay', 'az']]
     elif imu == 'applanix':
