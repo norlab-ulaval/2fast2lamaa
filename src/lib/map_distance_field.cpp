@@ -521,10 +521,21 @@ Mat4 MapDistField::registerPts(const std::vector<Pointd>& pts, const Mat4& pose,
         {
             min_time = std::min(min_time, weights[i]);
         }
-        double coeff = -9.0/(current_time - min_time);
-        for(size_t i = 0; i < pts.size(); i++)
+        if(current_time - min_time <= 0)
         {
-            weights[i] = 10.0 + (weights[i] - min_time)*coeff;
+            std::cout << "MapDistField::registerPts: Warning: current_time <= min_time (probably something funky with points' timestamps). Using uniform weights." << std::endl;
+            for(size_t i = 0; i < pts.size(); i++)
+            {
+                weights[i] = 1.0;
+            }
+        }
+        else
+        {
+            double coeff = -9.0/(current_time - min_time);
+            for(size_t i = 0; i < pts.size(); i++)
+            {
+                weights[i] = 10.0 + (weights[i] - min_time)*coeff;
+            }
         }
     }
     sw.stop();
