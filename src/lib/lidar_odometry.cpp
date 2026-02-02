@@ -2,7 +2,6 @@
 #include <iostream>
 #include <random>
 #include "KDTree.h"
-#include "lice/lidar_odometry_node.h"
 #include "ankerl/unordered_dense.h"
 #include <ctime>
 
@@ -12,7 +11,7 @@ typedef jk::tree::KDTree<int, 3, 16> KDTree3Simple;
 
 
 
-LidarOdometry::LidarOdometry(const LidarOdometryParams& params, LidarOdometryNode* node)
+LidarOdometry::LidarOdometry(const LidarOdometryParams& params, LidarOdometryPublisher* node)
     : params_(params)
     , node_(node)
 {
@@ -1129,7 +1128,7 @@ void LidarOdometry::publishResults(const State& state)
     auto [inv_pos_t1, inv_rot_t1] = invertTransform(pos_t1, rot_t1);
 
 
-    node_->publishTransform(current_time_, current_pos_, current_rot_);
+    if(node_ != nullptr) node_->publishTransform(current_time_, current_pos_, current_rot_);
 
     if(first_optimisation_)
     {
@@ -1137,7 +1136,7 @@ void LidarOdometry::publishResults(const State& state)
         current_pose_mutex_.lock();
         std::tie(current_pos_, current_rot_) = combineTransforms(current_pos_, current_rot_, inv_pos_t1, inv_rot_t1);
         current_time_ = t1;
-        node_->publishTransform(current_time_, current_pos_, current_rot_);
+        if(node_ != nullptr) node_->publishTransform(current_time_, current_pos_, current_rot_);
         current_pose_mutex_.unlock();
     }
 
@@ -1148,7 +1147,7 @@ void LidarOdometry::publishResults(const State& state)
     auto [increment_pos, increment_rot] = combineTransforms(inv_pos_t1, inv_rot_t1, pos_end, rot_end);
     auto [current_end_pos, current_end_rot] = combineTransforms(current_pos_, current_rot_, increment_pos, increment_rot);
     auto [twist_linear, twist_angular] = state.queryTwist(nanosToImuTime(end_t), state_blocks_[0], state_blocks_[1], state_blocks_[2], state_blocks_[3], time_offset_);
-    node_->publishGlobalOdom(end_t, current_end_pos, current_end_rot, twist_linear, twist_angular);
+    if(node_ != nullptr) node_->publishGlobalOdom(end_t, current_end_pos, current_end_rot, twist_linear, twist_angular);
 
 
     pc_mutex_.lock();
@@ -1254,7 +1253,7 @@ void LidarOdometry::correctAndPublishPc(
 
     if(dense)
     {
-        node_->publishPcDense(pc_chunks_t.at(1), pc_corrected);
+        if(node_ != nullptr) node_->publishPcDense(pc_chunks_t.at(1), pc_corrected);
     }
     else
     {
@@ -1262,7 +1261,7 @@ void LidarOdometry::correctAndPublishPc(
         std::sort(pc_corrected.begin(), pc_corrected.end(), [](const Pointd& a, const Pointd& b) {
             return a.t < b.t;
         });
-        node_->publishPc(pc_chunks_t.at(1), pc_corrected);
+        if(node_ != nullptr) node_->publishPc(pc_chunks_t.at(1), pc_corrected);
     }
 
     sw.stop();

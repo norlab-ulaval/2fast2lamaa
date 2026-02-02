@@ -45,34 +45,53 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 )
 
 
+add_library(lice STATIC
+  src/lib/lidar_odometry.cpp
+  src/lib/state.cpp
+  src/lib/map_distance_field.cpp
+  src/lib/submap_bundle_adjustment.cpp
+)
 
-add_executable(lidar_scan_odometry src/lidar_odometry_node.cpp src/lib/lidar_odometry.cpp src/lib/state.cpp)
-add_executable(gp_map src/gp_map_node.cpp src/lib/map_distance_field.cpp)
+target_link_libraries(lice
+  PUBLIC
+    Eigen3::Eigen
+    Ceres::ceres
+)
 
-add_executable(map_cleaner src/map_cleaning.cpp src/lib/map_distance_field.cpp)
-add_executable(offline_loop_closure src/offline_loop_closure.cpp src/lib/submap_bundle_adjustment.cpp src/lib/map_distance_field.cpp)
+target_include_directories(lice
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/external_lib>
+    $<INSTALL_INTERFACE:include>
+)
+
+add_executable(lidar_scan_odometry src/lidar_odometry_node.cpp)
+add_executable(gp_map src/gp_map_node.cpp)
+
+add_executable(map_cleaner src/map_cleaning.cpp)
+add_executable(offline_loop_closure src/offline_loop_closure.cpp)
 
 add_executable(lidar_2d_conversion src/2d_lidar_conversion_node.cpp)
 
 rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_cpp")
 
 target_link_libraries(lidar_scan_odometry
-  Eigen3::Eigen
-  Ceres::ceres
+  lice
 )
 target_link_libraries(gp_map
-  Eigen3::Eigen
-  Ceres::ceres
   "${cpp_typesupport_target}"
+  lice
 )
 
 target_link_libraries(map_cleaner
   Eigen3::Eigen
   Ceres::ceres
+  lice
 )
 target_link_libraries(offline_loop_closure
   Eigen3::Eigen
   Ceres::ceres
+  lice
 )
 target_link_libraries(lidar_2d_conversion
   Eigen3::Eigen
@@ -91,8 +110,7 @@ ament_target_dependencies(lidar_scan_odometry
   std_msgs
   tf2
   tf2_ros
-  Eigen3
-  Ceres)
+  )
   
 ament_target_dependencies(gp_map
   rclcpp
@@ -102,8 +120,7 @@ ament_target_dependencies(gp_map
   std_msgs
   tf2
   tf2_ros
-  Eigen3
-  Ceres)
+  )
 
 
 ament_target_dependencies(map_cleaner
@@ -134,6 +151,7 @@ install(
     )
 
 install(TARGETS
+  lice
   lidar_scan_odometry gp_map map_cleaner offline_loop_closure lidar_2d_conversion
   DESTINATION lib/${PROJECT_NAME})
 

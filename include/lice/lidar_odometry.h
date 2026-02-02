@@ -14,7 +14,6 @@
 #include <ceres/ceres.h>
 #include <ceres/rotation.h>
 
-class LidarOdometryNode;
 
 const double kPullPeriod = 0.001;
 const double kAssociationFilterAngQuantum = 1.0;
@@ -59,13 +58,25 @@ struct LidarOdometryParams
 
 
 
+class LidarOdometryPublisher
+{
+    public:
+        virtual void publishTransform(const int64_t t, const Vec3& pos, const Vec3& rot) = 0;
+        virtual void publishPc(const int64_t t, const std::vector<Pointd>& pc) = 0;
+        virtual void publishGlobalOdom(const int64_t t, const Vec3& pos, const Vec3& rot, const Vec3& vel, const Vec3& ang_vel) = 0;
+        virtual void publishPcDense(const int64_t t, const std::vector<Pointd>& pc) = 0;
+};
+
+
+
+
 
 class LidarOdometry
 {
 
     public:
 
-        LidarOdometry(const LidarOdometryParams& params, LidarOdometryNode* node);
+        LidarOdometry(const LidarOdometryParams& params, LidarOdometryPublisher* node);
 
         void addPc(const std::shared_ptr<std::vector<Pointd>>& pc, const int64_t t);
 
@@ -95,7 +106,7 @@ class LidarOdometry
     private:
 
         LidarOdometryParams params_;
-        LidarOdometryNode* node_;
+        LidarOdometryPublisher* node_;
 
         // Flag to indicate if the node is running
         bool running_ = false;

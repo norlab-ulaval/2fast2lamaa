@@ -1,5 +1,5 @@
 #include "rclcpp/rclcpp.hpp"
-#include "lice/ros_utils.h"
+#include "ros_utils.h"
 #include "lice/utils.h"
 #include "lice/math_utils.h"
 #include "lice/pointcloud_utils.h"
