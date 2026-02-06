@@ -661,7 +661,7 @@ int main(int argc, char **argv)
     auto context = rclcpp::contexts::get_global_default_context();
 
     // Use a weak pointer to avoid keeping the node alive
-    std::weak_ptr<MapperNode> weak_node = node;
+    std::weak_ptr<GpMapNode> weak_node = node;
 
     context->add_on_shutdown_callback(
         [weak_node]() {
