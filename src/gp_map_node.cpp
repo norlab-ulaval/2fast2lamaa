@@ -193,20 +193,32 @@ class GpMapNode: public rclcpp::Node
 
         ~GpMapNode()
         {
-            running_ = false;
-            map_publish_thread_->join();
-            map_mutex_.lock();
-            map_->writeMap();
-            map_mutex_.unlock();
+            shutdown();
         }
         
         void shutdown()
         {
+            // Ensure this function is idempotent
+            if (!running_ && !map_publish_thread_->joinable()) {
+                return;
+            }
+
             running_ = false;
-            map_publish_thread_->join();
-            map_mutex_.lock();
-            map_->writeMap();
-            map_mutex_.unlock();
+            
+            // Join the thread if it's joinable
+            if (map_publish_thread_ && map_publish_thread_->joinable()) {
+                map_publish_thread_->join();
+            }
+
+            // Use a lock to ensure map writing is thread-safe and only happens once if needed
+            // (Though submap_manager seems to handle its own internal state, we should protect the call)
+            std::lock_guard<std::mutex> lock(map_mutex_);
+            if (map_) {
+                // map_ is a shared_ptr, check if it's valid
+                map_->writeMap();
+                // Optional: Prevent further writes if map_ logic doesn't handle it
+                // But since we are shutting down, it's likely fine.
+            }
         }
 
     private:
