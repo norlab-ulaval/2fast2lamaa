@@ -195,6 +195,18 @@ class GpMapNode: public rclcpp::Node
         {
             running_ = false;
             map_publish_thread_->join();
+            map_mutex_.lock();
+            map_->writeMap();
+            map_mutex_.unlock();
+        }
+        
+        void shutdown()
+        {
+            running_ = false;
+            map_publish_thread_->join();
+            map_mutex_.lock();
+            map_->writeMap();
+            map_mutex_.unlock();
         }
 
     private:
@@ -644,7 +656,28 @@ int main(int argc, char **argv)
 {
     rclcpp::init(argc, argv);
     auto node = std::make_shared<GpMapNode>();
-    rclcpp::spin(node);
+    
+    // Register shutdown callback on the global context
+    auto context = rclcpp::contexts::get_global_default_context();
+
+    // Use a weak pointer to avoid keeping the node alive
+    std::weak_ptr<MapperNode> weak_node = node;
+
+    context->add_on_shutdown_callback(
+        [weak_node]() {
+            if (auto n = weak_node.lock()) {
+                std::cout << "[gp_map] Received a shut down call" << std::endl;
+                n->shutdown();
+                std::cout << "[gp_map] Shutdown save completed" << std::endl;
+            }
+        });
+
+    try {
+        rclcpp::spin(node);
+    } catch (const std::exception & e) {
+        std::cout << "Exception: " << e.what();
+    }
+    
     rclcpp::shutdown();
     return 0;
 }
