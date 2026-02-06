@@ -333,6 +333,10 @@ class GpMapNode: public rclcpp::Node
 
         void updateMap(const sensor_msgs::msg::PointCloud2::ConstSharedPtr msg, const Mat4 trans)
         {
+            if(!running_)
+            {
+                return;
+            }
             StopWatch sw;
             StopWatch sw2;
             sw.start();
