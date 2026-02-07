@@ -18,6 +18,7 @@
 #include "ankerl/unordered_dense.h"
 
 #include "ffastllamaa/srv/query_dist_field.hpp"
+#include "std_srvs/srv/trigger.hpp"
 
 #include <sys/stat.h>
 
@@ -176,6 +177,7 @@ class GpMapNode: public rclcpp::Node
             pose_pub_ = this->create_publisher<geometry_msgs::msg::TransformStamped>("/scan_to_map_pose", 10);
             map_publish_thread_ = std::make_unique<std::thread>(&GpMapNode::mapPublishThread, this);
             query_dist_field_srv_ = this->create_service<ffastllamaa::srv::QueryDistField>("/query_dist_field", std::bind(&GpMapNode::queryDistFieldCallback, this, std::placeholders::_1, std::placeholders::_2));
+            save_map_srv_ = this->create_service<std_srvs::srv::Trigger>("/save_map", std::bind(&GpMapNode::saveMapCallback, this, std::placeholders::_1, std::placeholders::_2));
 
 
 
@@ -258,6 +260,7 @@ class GpMapNode: public rclcpp::Node
         rclcpp::Publisher<geometry_msgs::msg::TransformStamped>::SharedPtr pose_pub_;
         // Service to query the distance field
         rclcpp::Service<ffastllamaa::srv::QueryDistField>::SharedPtr query_dist_field_srv_;
+        rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr save_map_srv_;
 
 
 
@@ -300,6 +303,22 @@ class GpMapNode: public rclcpp::Node
 
         // Store the last point cloud time
         std::atomic<std::chrono::time_point<std::chrono::high_resolution_clock>> last_pc_epoch_time_;
+
+        void saveMapCallback(const std::shared_ptr<std_srvs::srv::Trigger::Request> request, std::shared_ptr<std_srvs::srv::Trigger::Response> response)
+        {
+            (void)request;
+            std::lock_guard<std::mutex> lock(map_mutex_);
+            if (map_) {
+                map_->writeMap();
+                response->success = true;
+                response->message = "Map saved successfully to " + map_->getMapPath();
+                RCLCPP_INFO(this->get_logger(), "Map saved via service call");
+            } else {
+                response->success = false;
+                response->message = "Map object is not initialized";
+                RCLCPP_ERROR(this->get_logger(), "Failed to save map: Map object not initialized");
+            }
+        }
 
         void queryDistFieldCallback(const std::shared_ptr<ffastllamaa::srv::QueryDistField::Request> request, std::shared_ptr<ffastllamaa::srv::QueryDistField::Response> response)
         {
