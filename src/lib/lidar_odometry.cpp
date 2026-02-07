@@ -1005,7 +1005,7 @@ void LidarOdometry::printState()
 
 void LidarOdometry::logState()
 {
-    std::string log_path = "/home/ced/ros2_ws/install/ffastllamaa/share/ffastllamaa/maps/lidar_odometry_state.csv";
+    std::string log_path = "/tmp/lidar_odometry_state.csv";
 
     std::ofstream log_file;
     if(first_optimisation_)

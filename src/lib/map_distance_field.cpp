@@ -565,7 +565,7 @@ Mat4 MapDistField::registerPts(const std::vector<Pointd>& pts, const Mat4& pose,
     std::cout << "\n\n\n\n----------------\nPose correction: \n" << pose_correction_state.transpose() << "----------------\n\n\n\n" << std::endl;
 
     // Log the pose correction
-    std::string log_path = "/home/ced/ros2_ws/install/ffastllamaa/share/ffastllamaa/maps/localization_corrections.csv";
+    std::string log_path = "/tmp/localization_corrections.csv";
     if(scan_counter_ <= 0)
     {
         std::ofstream log_file;
