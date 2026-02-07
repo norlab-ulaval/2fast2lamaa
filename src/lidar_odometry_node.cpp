@@ -106,7 +106,7 @@ class LidarOdometryNode : public rclcpp::Node, public LidarOdometryPublisher
             acc_sub_ = this->create_subscription<sensor_msgs::msg::Imu>("/imu/acc", 100, std::bind(&LidarOdometryNode::accCallback, this, std::placeholders::_1));
             gyr_sub_ = this->create_subscription<sensor_msgs::msg::Imu>("/imu/gyr", 100, std::bind(&LidarOdometryNode::gyrCallback, this, std::placeholders::_1));
 
-            lidar_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>("/lidar_raw_points", 100, std::bind(&LidarOdometryNode::pcCallback, this, std::placeholders::_1));
+            lidar_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>("/lidar_raw_points", 1, std::bind(&LidarOdometryNode::pcCallback, this, std::placeholders::_1));
 
             odom_map_correction_sub_ = this->create_subscription<geometry_msgs::msg::TransformStamped>("/odom_map_correction", 10, std::bind(&LidarOdometryNode::odomMapCorrectionCallback, this, std::placeholders::_1));
 
