@@ -311,7 +311,7 @@ class GpMapNode: public rclcpp::Node
             if (map_) {
                 map_->writeMap();
                 response->success = true;
-                response->message = "Map saved successfully to " + map_->getMapPath();
+                response->message = "Map saved.";
                 RCLCPP_INFO(this->get_logger(), "Map saved via service call");
             } else {
                 response->success = false;
