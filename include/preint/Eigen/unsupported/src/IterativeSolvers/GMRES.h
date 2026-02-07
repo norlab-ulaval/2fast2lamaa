@@ -243,8 +243,8 @@ struct traits<GMRES<_MatrixType,_Preconditioner> >
   * // fill A and b
   * GMRES<SparseMatrix<double> > solver(A);
   * x = solver.solve(b);
-  * std::cout << "#iterations:     " << solver.iterations() << std::endl;
-  * std::cout << "estimated error: " << solver.error()      << std::endl;
+  * //std::cout << "#iterations:     " << solver.iterations() << std::endl;
+  * //std::cout << "estimated error: " << solver.error()      << std::endl;
   * // update b, and solve again
   * x = solver.solve(b);
   * \endcode

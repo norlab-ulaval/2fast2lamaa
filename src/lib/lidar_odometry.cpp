@@ -142,7 +142,7 @@ std::shared_ptr<std::thread> LidarOdometry::runThread()
 
 void LidarOdometry::run()
 {
-    std::cout << "Starting lidar odometry thread" << std::endl;
+    //std::cout << "Starting lidar odometry thread" << std::endl;
     running_ = true;
     while(running_)
     {
@@ -190,7 +190,7 @@ void LidarOdometry::run()
             std::this_thread::sleep_for(std::chrono::milliseconds(int(kPullPeriod*1000)));
         }
     }
-    std::cout << "Stopping lidar odometry thread" << std::endl;
+    //std::cout << "Stopping lidar odometry thread" << std::endl;
 }
 
 
@@ -281,7 +281,7 @@ void LidarOdometry::splitAndFeatureExtraction(std::shared_ptr<std::vector<Pointd
         }
         if(median_dt_ <= 0.0)
         {
-            std::cout << "ERROR !!!!!!!!!!!!!!!!!!!!! LidarOdometry::extractEdgeFeatures: Median dt is zero or negative, cannot compute features." << std::endl;
+            //std::cout << "ERROR !!!!!!!!!!!!!!!!!!!!! LidarOdometry::extractEdgeFeatures: Median dt is zero or negative, cannot compute features." << std::endl;
             return;
         }
     }
@@ -607,7 +607,7 @@ std::vector<DataAssociation> LidarOdometry::createProblemAssociateAndOptimise(
     // Solve the problem
     ceres::Solver::Summary summary;
     ceres::Solve(options, &problem, &summary);
-    std::cout << summary.BriefReport() << std::endl;
+    //std::cout << summary.BriefReport() << std::endl;
 
 
     return data_associations;
@@ -983,23 +983,23 @@ void LidarOdometry::printState()
 {
     if(params_.mode == LidarOdometryMode::IMU)
     {
-        std::cout << "State: " << std::endl;
-        std::cout << "    acc_bias: " << state_blocks_[0].transpose() << std::endl;
-        std::cout << "    gyr_bias: " << state_blocks_[1].transpose() << std::endl;
-        std::cout << "    gravity: " << state_blocks_[2].transpose() << std::endl;
-        std::cout << "    vel: " << state_blocks_[3].transpose() << std::endl;
+        //std::cout << "State: " << std::endl;
+        //std::cout << "    acc_bias: " << state_blocks_[0].transpose() << std::endl;
+        //std::cout << "    gyr_bias: " << state_blocks_[1].transpose() << std::endl;
+        //std::cout << "    gravity: " << state_blocks_[2].transpose() << std::endl;
+        //std::cout << "    vel: " << state_blocks_[3].transpose() << std::endl;
     }
     else if(params_.mode == LidarOdometryMode::GYR)
     {
-        std::cout << "State: " << std::endl;
-        std::cout << "    gyr_bias: " << state_blocks_[1].transpose() << std::endl;
-        std::cout << "    vel: " << state_blocks_[3].transpose() << std::endl;
+        //std::cout << "State: " << std::endl;
+        //std::cout << "    gyr_bias: " << state_blocks_[1].transpose() << std::endl;
+        //std::cout << "    vel: " << state_blocks_[3].transpose() << std::endl;
     }
     else // NO_IMU
     {
-        std::cout << "State: " << std::endl;
-        std::cout << "    ang_vel: " << state_blocks_[1].transpose() << std::endl;
-        std::cout << "    vel: " << state_blocks_[3].transpose() << std::endl;
+        //std::cout << "State: " << std::endl;
+        //std::cout << "    ang_vel: " << state_blocks_[1].transpose() << std::endl;
+        //std::cout << "    vel: " << state_blocks_[3].transpose() << std::endl;
     }
 }
 
@@ -1196,7 +1196,7 @@ void LidarOdometry::correctAndPublishPc(
     end_t += (int64_t)(scan_time_sum_ / scan_count_);
     if(end_t < current_t)
     {
-        std::cout << "Skipping point cloud correction, current time is " << current_t << " and end time is " << end_t << std::endl;
+        //std::cout << "Skipping point cloud correction, current time is " << current_t << " and end time is " << end_t << std::endl;
         return;
     }
     

@@ -58,6 +58,8 @@ struct LidarOdometryParams
 
 
 
+#include "rclcpp/rclcpp.hpp"
+
 class LidarOdometryPublisher
 {
     public:

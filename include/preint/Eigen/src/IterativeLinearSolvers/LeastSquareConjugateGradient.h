@@ -134,8 +134,8 @@ struct traits<LeastSquaresConjugateGradient<_MatrixType,_Preconditioner> >
     LeastSquaresConjugateGradient<SparseMatrix<double> > lscg;
     lscg.compute(A);
     x = lscg.solve(b);
-    std::cout << "#iterations:     " << lscg.iterations() << std::endl;
-    std::cout << "estimated error: " << lscg.error()      << std::endl;
+    //std::cout << "#iterations:     " << lscg.iterations() << std::endl;
+    //std::cout << "estimated error: " << lscg.error()      << std::endl;
     // update b, and solve again
     x = lscg.solve(b);
     \endcode

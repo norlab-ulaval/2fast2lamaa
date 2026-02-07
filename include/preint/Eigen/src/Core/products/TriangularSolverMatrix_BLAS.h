@@ -144,7 +144,7 @@ struct triangular_solve_matrix<EIGTYPE,Index,OnTheRight,Mode,Conjugate,TriStorag
    if (IsUnitDiag) diag='U'; \
 /* call ?trsm*/ \
    BLASFUNC(&side, &uplo, &transa, &diag, &m, &n, (const BLASTYPE*)&numext::real_ref(alpha), (const BLASTYPE*)a, &lda, (BLASTYPE*)_other, &ldb); \
-   /*std::cout << "TRMS_L specialization!\n";*/ \
+   /*//std::cout << "TRMS_L specialization!\n";*/ \
  } \
 };
 

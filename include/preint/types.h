@@ -123,21 +123,21 @@ namespace ugpm
 
             if(min_acc_dt < 0)
             {
-                std::cout << "WARNING: Accelerometer data is not sorted in time" << std::endl;
+                //std::cout << "WARNING: Accelerometer data is not sorted in time" << std::endl;
                 output = false;
             }
             if(min_gyr_dt < 0)
             {
-                std::cout << "WARNING: Gyroscope data is not sorted in time" << std::endl;
+                //std::cout << "WARNING: Gyroscope data is not sorted in time" << std::endl;
                 output = false;
             }
             double range_acc_dt = max_acc_dt - min_acc_dt;
             double range_gyr_dt = max_gyr_dt - min_gyr_dt;
             if ( (range_acc_dt/max_acc_dt > 0.1) || (range_gyr_dt/max_gyr_dt > 0.1) )
             {
-                std::cout << "WARNING: Accelerometer or gyroscope data is not sampled at a constant frequency" << std::endl;
-                std::cout << "\tMin \\ max delta time for acc " << min_acc_dt << " \\ " << max_acc_dt << std::endl;
-                std::cout << "\tMin \\ max delta time for gyr " << min_gyr_dt << " \\ " << max_gyr_dt << std::endl;
+                //std::cout << "WARNING: Accelerometer or gyroscope data is not sampled at a constant frequency" << std::endl;
+                //std::cout << "\tMin \\ max delta time for acc " << min_acc_dt << " \\ " << max_acc_dt << std::endl;
+                //std::cout << "\tMin \\ max delta time for gyr " << min_gyr_dt << " \\ " << max_gyr_dt << std::endl;
                 output = false;
             }
             return output;
@@ -166,22 +166,22 @@ namespace ugpm
 
         void print()
         {
-            std::cout << "Imu data with offset of " << t_offset << std::endl;
-            std::cout << "  Accelerometer data (" << acc.size() << " samples with std = " << sqrt(acc_var) << ")" << std::endl;
+            //std::cout << "Imu data with offset of " << t_offset << std::endl;
+            //std::cout << "  Accelerometer data (" << acc.size() << " samples with std = " << sqrt(acc_var) << ")" << std::endl;
             for(const auto& a : acc)
             {
-                std::cout << "      t = " << a.t << ":    "
-                        << a.data[0] << "    "
-                        << a.data[1] << "    "
-                        << a.data[2] << std::endl;
+                //std::cout << "      t = " << a.t << ":    "
+                        // << a.data[0] << "    "
+                        // << a.data[1] << "    "
+                        // << a.data[2] << std::endl;
             }
-            std::cout << "  Gyroscope data (" << gyr.size() << " samples with std = " << sqrt(gyr_var) << ")" << std::endl;
+            //std::cout << "  Gyroscope data (" << gyr.size() << " samples with std = " << sqrt(gyr_var) << ")" << std::endl;
             for(const auto& g : gyr)
             {
-                std::cout << "      t = " << g.t << ":    " 
-                        << g.data[0] << "    "
-                        << g.data[1] << "    "
-                        << g.data[2] << std::endl;
+                //std::cout << "      t = " << g.t << ":    " 
+                        // << g.data[0] << "    "
+                        // << g.data[1] << "    "
+                        // << g.data[2] << std::endl;
             }
         }
 
@@ -192,7 +192,7 @@ namespace ugpm
                 std::vector<ImuSample> output;
                 if(from >= to)
                 {
-                    std::cout << "WARNING: Trying to get IMU data from a time range null or negative" << std::endl;
+                    //std::cout << "WARNING: Trying to get IMU data from a time range null or negative" << std::endl;
                     return output;
                 }
 
@@ -246,21 +246,21 @@ namespace ugpm
 
         void print() const
         {
-            std::cout << "Preintegrated measurement" << std::endl;
-            std::cout << "  dt = " << dt << std::endl;
-            std::cout << "  dt_sq_half = " << dt_sq_half << std::endl;
-            std::cout << "  Delta R = " << std::endl
-                    << "    " << delta_R.row(0) << std::endl
-                    << "    " << delta_R.row(1) << std::endl
-                    << "    " << delta_R.row(2) << std::endl;
-            std::cout << "  Delta v = " << std::endl 
-                    << "    " << delta_v.row(0) << std::endl
-                    << "    " << delta_v.row(1) << std::endl
-                    << "    " << delta_v.row(2) << std::endl;
-            std::cout << "  Delta p = " << std::endl
-                    << "    " << delta_p.row(0) << std::endl
-                    << "    " << delta_p.row(1) << std::endl
-                    << "    " << delta_p.row(2) << std::endl;
+            //std::cout << "Preintegrated measurement" << std::endl;
+            //std::cout << "  dt = " << dt << std::endl;
+            //std::cout << "  dt_sq_half = " << dt_sq_half << std::endl;
+            //std::cout << "  Delta R = " << std::endl
+                    // << "    " << delta_R.row(0) << std::endl
+                    // << "    " << delta_R.row(1) << std::endl
+                    // << "    " << delta_R.row(2) << std::endl;
+            //std::cout << "  Delta v = " << std::endl 
+                    // << "    " << delta_v.row(0) << std::endl
+                    // << "    " << delta_v.row(1) << std::endl
+                    // << "    " << delta_v.row(2) << std::endl;
+            //std::cout << "  Delta p = " << std::endl
+                    // << "    " << delta_p.row(0) << std::endl
+                    // << "    " << delta_p.row(1) << std::endl
+                    // << "    " << delta_p.row(2) << std::endl;
         }
     };
 
@@ -295,42 +295,42 @@ namespace ugpm
         void printAll() const
         {
             print();
-            std::cout << "  Covariance = " << std::endl
-                    << "    " << cov.row(0) << std::endl
-                    << "    " << cov.row(1) << std::endl
-                    << "    " << cov.row(2) << std::endl
-                    << "    " << cov.row(3) << std::endl
-                    << "    " << cov.row(4) << std::endl
-                    << "    " << cov.row(5) << std::endl
-                    << "    " << cov.row(6) << std::endl
-                    << "    " << cov.row(7) << std::endl
-                    << "    " << cov.row(8) << std::endl;
-            std::cout << "  Jacobian Delta R / gyr bias = " << std::endl
-                    << "    " << d_delta_R_d_bw.row(0) << std::endl
-                    << "    " << d_delta_R_d_bw.row(1) << std::endl
-                    << "    " << d_delta_R_d_bw.row(2) << std::endl;
-            std::cout << "  Jacobian Delta R / time-shift = " << std::endl
-                    << "    " << d_delta_R_d_t.transpose() << std::endl;
-            std::cout << "  Jacobian Delta v / gyr bias = " << std::endl
-                    << "    " << d_delta_v_d_bw.row(0) << std::endl
-                    << "    " << d_delta_v_d_bw.row(1) << std::endl
-                    << "    " << d_delta_v_d_bw.row(2) << std::endl;
-            std::cout << "  Jacobian Delta v / acc bias = " << std::endl
-                    << "    " << d_delta_v_d_bf.row(0) << std::endl
-                    << "    " << d_delta_v_d_bf.row(1) << std::endl
-                    << "    " << d_delta_v_d_bf.row(2) << std::endl;
-            std::cout << "  Jacobian Delta v / time-shift = " << std::endl
-                    << "    " << d_delta_v_d_t.transpose() << std::endl;
-            std::cout << "  Jacobian Delta p / gyr bias = " << std::endl
-                    << "    " << d_delta_p_d_bw.row(0) << std::endl
-                    << "    " << d_delta_p_d_bw.row(1) << std::endl
-                    << "    " << d_delta_p_d_bw.row(2) << std::endl;
-            std::cout << "  Jacobian Delta p / acc bias = " << std::endl
-                    << "    " << d_delta_p_d_bf.row(0) << std::endl
-                    << "    " << d_delta_p_d_bf.row(1) << std::endl
-                    << "    " << d_delta_p_d_bf.row(2) << std::endl;
-            std::cout << "  Jacobian Delta p / time-shift = " << std::endl
-                    << "    " << d_delta_p_d_t.transpose() << std::endl;
+            // //std::cout << "  Covariance = " << std::endl
+            //         << "    " << cov.row(0) << std::endl
+            //         << "    " << cov.row(1) << std::endl
+            //         << "    " << cov.row(2) << std::endl
+            //         << "    " << cov.row(3) << std::endl
+            //         << "    " << cov.row(4) << std::endl
+            //         << "    " << cov.row(5) << std::endl
+            //         << "    " << cov.row(6) << std::endl
+            //         << "    " << cov.row(7) << std::endl
+            //         << "    " << cov.row(8) << std::endl;
+            // //std::cout << "  Jacobian Delta R / gyr bias = " << std::endl
+            //         << "    " << d_delta_R_d_bw.row(0) << std::endl
+            //         << "    " << d_delta_R_d_bw.row(1) << std::endl
+            //         << "    " << d_delta_R_d_bw.row(2) << std::endl;
+            // //std::cout << "  Jacobian Delta R / time-shift = " << std::endl
+            //         << "    " << d_delta_R_d_t.transpose() << std::endl;
+            // //std::cout << "  Jacobian Delta v / gyr bias = " << std::endl
+            //         << "    " << d_delta_v_d_bw.row(0) << std::endl
+            //         << "    " << d_delta_v_d_bw.row(1) << std::endl
+            //         << "    " << d_delta_v_d_bw.row(2) << std::endl;
+            // //std::cout << "  Jacobian Delta v / acc bias = " << std::endl
+            //         << "    " << d_delta_v_d_bf.row(0) << std::endl
+            //         << "    " << d_delta_v_d_bf.row(1) << std::endl
+            //         << "    " << d_delta_v_d_bf.row(2) << std::endl;
+            // //std::cout << "  Jacobian Delta v / time-shift = " << std::endl
+            //         << "    " << d_delta_v_d_t.transpose() << std::endl;
+            // //std::cout << "  Jacobian Delta p / gyr bias = " << std::endl
+            //         << "    " << d_delta_p_d_bw.row(0) << std::endl
+            //         << "    " << d_delta_p_d_bw.row(1) << std::endl
+            //         << "    " << d_delta_p_d_bw.row(2) << std::endl;
+            // //std::cout << "  Jacobian Delta p / acc bias = " << std::endl
+            //         << "    " << d_delta_p_d_bf.row(0) << std::endl
+            //         << "    " << d_delta_p_d_bf.row(1) << std::endl
+            //         << "    " << d_delta_p_d_bf.row(2) << std::endl;
+            // //std::cout << "  Jacobian Delta p / time-shift = " << std::endl
+            //         << "    " << d_delta_p_d_t.transpose() << std::endl;
         }
 
 

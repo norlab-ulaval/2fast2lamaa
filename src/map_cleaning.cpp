@@ -25,13 +25,13 @@ int main(int argc, char** argv)
 
     // Handle help option
     if (result.count("help")) {
-        std::cout << options.help() << std::endl;
+        //std::cout << options.help() << std::endl;
         return 0;
     }
     // Validate required arguments
     if (!result.count("data_folder") || !result.count("voxel_size")) {
         std::cerr << "Error: Missing required arguments." << std::endl;
-        std::cout << options.help() << std::endl;
+        //std::cout << options.help() << std::endl;
         return 1;
     }
     // Retrieve argument values
@@ -65,7 +65,7 @@ int main(int argc, char** argv)
     }
 
     // Read the scan folder
-    std::cout << "Loading scans from: " << scan_folder << std::endl;
+    //std::cout << "Loading scans from: " << scan_folder << std::endl;
     if (!std::filesystem::exists(scan_folder)) {
         std::cerr << "Error: Scan folder does not exist." << std::endl;
         return 1;
@@ -94,7 +94,7 @@ int main(int argc, char** argv)
     // Loop through each map and clean
     for (size_t i = 0; i < map_paths.size(); ++i) {
         std::string map_path = map_paths[i];
-        std::cout << "Cleaning map: " << map_path << std::endl;
+        //std::cout << "Cleaning map: " << map_path << std::endl;
         MapDistFieldOptions options;
         options.cell_size = result["voxel_size"].as<double>();
         options.free_space_carving = true;
@@ -107,7 +107,7 @@ int main(int argc, char** argv)
         std::string original_map_path = map_path;;
         original_map_path.replace(original_map_path.end() - 4, original_map_path.end(), "_original.ply");
         std::filesystem::copy_file(map_path, original_map_path, std::filesystem::copy_options::overwrite_existing);
-        std::cout << "Copied original map to: " << original_map_path << std::endl;
+        //std::cout << "Copied original map to: " << original_map_path << std::endl;
 
 
         MapDistField map(options);
@@ -124,7 +124,7 @@ int main(int argc, char** argv)
         {
             traj_file = data_folder + "trajectory_map.csv";
         }
-        std::cout << "Loading trajectory from: " << traj_file << std::endl;
+        //std::cout << "Loading trajectory from: " << traj_file << std::endl;
         std::vector<int64_t> traj_times;
         std::vector<Mat4> traj_poses;
         {
@@ -174,11 +174,11 @@ int main(int argc, char** argv)
                 traj_poses.push_back(pose);
             }
         }
-        std::cout << "Loaded " << traj_times.size() << " trajectory poses." << std::endl;
+        //std::cout << "Loaded " << traj_times.size() << " trajectory poses." << std::endl;
         // For each pose in the trajectory, find the closest scan
         for(size_t j = 0; j < traj_times.size(); j++)
         {
-            std::cout << "Processing trajectory pose at time: " << j << " / " << traj_times.size() << std::endl;
+            //std::cout << "Processing trajectory pose at time: " << j << " / " << traj_times.size() << std::endl;
             int64_t traj_time = traj_times[j];
             Mat4 traj_pose = traj_poses[j];
 
@@ -193,7 +193,7 @@ int main(int argc, char** argv)
                 }
             }
             if (min_time_diff > 1e6) { // 1ms threshold
-                std::cout << "Warning: No close scan found for trajectory time " << traj_time << std::endl;
+                //std::cout << "Warning: No close scan found for trajectory time " << traj_time << std::endl;
                 continue;
             }
 
@@ -208,7 +208,7 @@ int main(int argc, char** argv)
         std::string output_path = map_path;
         // Replace .ply with _cleaned.ply
         map.writeMap(output_path);
-        std::cout << "Saved cleaned map to: " << output_path << std::endl;
+        //std::cout << "Saved cleaned map to: " << output_path << std::endl;
 
     }
 

@@ -487,7 +487,7 @@ ArpackGeneralizedSelfAdjointEigenSolver<MatrixType, MatrixSolver, BisSPD>&
   }
  
   if (!(mode == 1 && isBempty) && !(mode == 2 && isBempty) && OP.info() != Success)
-      std::cout << "Error factoring matrix" << std::endl;
+      //std::cout << "Error factoring matrix" << std::endl;
 
   do
   {

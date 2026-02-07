@@ -119,7 +119,7 @@ struct product_triangular_matrix_matrix_trmm<EIGTYPE,Index,Mode,true, \
        product_triangular_matrix_matrix<EIGTYPE,Index,Mode,true, \
        LhsStorageOrder,ConjugateLhs, RhsStorageOrder, ConjugateRhs, ColMajor, 1, BuiltIn>::run( \
            _rows, _cols, _depth, _lhs, lhsStride, _rhs, rhsStride, res, 1, resStride, alpha, blocking); \
-     /*std::cout << "TRMM_L: A is not square! Go to Eigen TRMM implementation!\n";*/ \
+     /*//std::cout << "TRMM_L: A is not square! Go to Eigen TRMM implementation!\n";*/ \
      } else { \
      /* Make sense to call GEMM */ \
        Map<const MatrixLhs, 0, OuterStride<> > lhsMap(_lhs,rows,depth,OuterStride<>(lhsStride)); \
@@ -129,7 +129,7 @@ struct product_triangular_matrix_matrix_trmm<EIGTYPE,Index,Mode,true, \
        general_matrix_matrix_product<Index,EIGTYPE,LhsStorageOrder,ConjugateLhs,EIGTYPE,RhsStorageOrder,ConjugateRhs,ColMajor,1>::run( \
        rows, cols, depth, aa_tmp.data(), aStride, _rhs, rhsStride, res, 1, resStride, alpha, gemm_blocking, 0); \
 \
-     /*std::cout << "TRMM_L: A is not square! Go to BLAS GEMM implementation! " << nthr<<" \n";*/ \
+     /*//std::cout << "TRMM_L: A is not square! Go to BLAS GEMM implementation! " << nthr<<" \n";*/ \
      } \
      return; \
    } \
@@ -172,7 +172,7 @@ struct product_triangular_matrix_matrix_trmm<EIGTYPE,Index,Mode,true, \
      a = _lhs; \
      lda = convert_index<BlasIndex>(lhsStride); \
    } \
-   /*std::cout << "TRMM_L: A is square! Go to BLAS TRMM implementation! \n";*/ \
+   /*//std::cout << "TRMM_L: A is square! Go to BLAS TRMM implementation! \n";*/ \
 /* call ?trmm*/ \
    BLASFUNC(&side, &uplo, &transa, &diag, &m, &n, (const BLASTYPE*)&numext::real_ref(alpha), (const BLASTYPE*)a, &lda, (BLASTYPE*)b, &ldb); \
 \
@@ -236,7 +236,7 @@ struct product_triangular_matrix_matrix_trmm<EIGTYPE,Index,Mode,false, \
        product_triangular_matrix_matrix<EIGTYPE,Index,Mode,false, \
        LhsStorageOrder,ConjugateLhs, RhsStorageOrder, ConjugateRhs, ColMajor, 1, BuiltIn>::run( \
            _rows, _cols, _depth, _lhs, lhsStride, _rhs, rhsStride, res, 1, resStride, alpha, blocking); \
-       /*std::cout << "TRMM_R: A is not square! Go to Eigen TRMM implementation!\n";*/ \
+       /*//std::cout << "TRMM_R: A is not square! Go to Eigen TRMM implementation!\n";*/ \
      } else { \
      /* Make sense to call GEMM */ \
        Map<const MatrixRhs, 0, OuterStride<> > rhsMap(_rhs,depth,cols, OuterStride<>(rhsStride)); \
@@ -246,7 +246,7 @@ struct product_triangular_matrix_matrix_trmm<EIGTYPE,Index,Mode,false, \
        general_matrix_matrix_product<Index,EIGTYPE,LhsStorageOrder,ConjugateLhs,EIGTYPE,RhsStorageOrder,ConjugateRhs,ColMajor,1>::run( \
        rows, cols, depth, _lhs, lhsStride, aa_tmp.data(), aStride, res, 1, resStride, alpha, gemm_blocking, 0); \
 \
-     /*std::cout << "TRMM_R: A is not square! Go to BLAS GEMM implementation! " << nthr<<" \n";*/ \
+     /*//std::cout << "TRMM_R: A is not square! Go to BLAS GEMM implementation! " << nthr<<" \n";*/ \
      } \
      return; \
    } \
@@ -289,7 +289,7 @@ struct product_triangular_matrix_matrix_trmm<EIGTYPE,Index,Mode,false, \
      a = _rhs; \
      lda = convert_index<BlasIndex>(rhsStride); \
    } \
-   /*std::cout << "TRMM_R: A is square! Go to BLAS TRMM implementation! \n";*/ \
+   /*//std::cout << "TRMM_R: A is square! Go to BLAS TRMM implementation! \n";*/ \
 /* call ?trmm*/ \
    BLASFUNC(&side, &uplo, &transa, &diag, &m, &n, (const BLASTYPE*)&numext::real_ref(alpha), (const BLASTYPE*)a, &lda, (BLASTYPE*)b, &ldb); \
 \

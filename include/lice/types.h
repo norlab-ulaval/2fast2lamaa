@@ -340,9 +340,9 @@ inline void testDataAssociationJacobian(int type = 1)
         jacobian_num[i] = (res_shift - res) / eps;
     }
 
-    std::cout << "Test data association residuals type: " << std::endl << type << std::endl;
-    std::cout << "Jacobian: " << std::endl << jacobian << std::endl;
-    std::cout << "Jacobian num: " << std::endl << jacobian_num << std::endl;
+    //std::cout << "Test data association residuals type: " << std::endl << type << std::endl;
+    //std::cout << "Jacobian: " << std::endl << jacobian << std::endl;
+    //std::cout << "Jacobian num: " << std::endl << jacobian_num << std::endl;
 }
 
 

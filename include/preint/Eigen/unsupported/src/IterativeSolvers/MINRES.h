@@ -182,8 +182,8 @@ namespace Eigen {
      * MINRES<SparseMatrix<double> > mr;
      * mr.compute(A);
      * x = mr.solve(b);
-     * std::cout << "#iterations:     " << mr.iterations() << std::endl;
-     * std::cout << "estimated error: " << mr.error()      << std::endl;
+     * //std::cout << "#iterations:     " << mr.iterations() << std::endl;
+     * //std::cout << "estimated error: " << mr.error()      << std::endl;
      * // update b, and solve again
      * x = mr.solve(b);
      * \endcode

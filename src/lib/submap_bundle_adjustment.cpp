@@ -105,7 +105,7 @@ void SubmapBundleAdjustment::poseGraphOptimization()
     solver_options.minimizer_progress_to_stdout = true;
     ceres::Solver::Summary summary;
     ceres::Solve(solver_options, &problem, &summary);
-    std::cout << summary.FullReport() << std::endl;
+    //std::cout << summary.FullReport() << std::endl;
 
     // Write the optimized poses
     writeOptimizedPoses(loop_folder_ + "pose_graph_poses.txt");
@@ -218,7 +218,7 @@ void SubmapBundleAdjustment::refineLoopTransforms()
     MapDistFieldOptions map_options;
     for(size_t i = 0; i < loop_closures_.size(); ++i)
     {
-        std::cout << "Refining loop transform " << i << std::endl;
+        //std::cout << "Refining loop transform " << i << std::endl;
         int id_1 = loop_closures_[i].first;
         int id_2 = loop_closures_[i].second;
         std::string pcd_1 = pcd_folder_ + "submap_" + std::to_string(id_1) + ".ply";

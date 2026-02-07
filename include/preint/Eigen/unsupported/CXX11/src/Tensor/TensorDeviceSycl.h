@@ -33,7 +33,7 @@ struct SyclDevice {
       try {
         std::rethrow_exception(e);
       } catch (cl::sycl::exception e) {
-          std::cout << e.what() << std::endl;
+          //std::cout << e.what() << std::endl;
         }
     }
   }))

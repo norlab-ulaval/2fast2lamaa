@@ -96,12 +96,12 @@ namespace thuni
 			{
 				if (point < heap[0])
 				{
-					// std::cout<<"point.dist: "<<point.dist<<", heap[0].dist: "<<heap[0].dist<<std::endl;
+					// //std::cout<<"point.dist: "<<point.dist<<", heap[0].dist: "<<heap[0].dist<<std::endl;
 					pop();
 				}
 				else
 				{
-					// std::cout<<"point.dist: "<<point.dist<<", heap[0].dist: "<<heap[0].dist<<std::endl;
+					// //std::cout<<"point.dist: "<<point.dist<<", heap[0].dist: "<<heap[0].dist<<std::endl;
 					return;
 				}
 			}
@@ -584,13 +584,13 @@ namespace thuni
 				if (extent > maxextent)
 					maxextent = extent;
 			}
-			// std::cout<<"maxextent: "<<maxextent<<", "
+			// //std::cout<<"maxextent: "<<maxextent<<", "
 			// 		<<"min: "<<min[0]<<", "<<min[1]<<", "<<min[2]<<", "
 			// 		<<"max: "<<max[0]<<", "<<max[1]<<", "<<max[2]<<", "
 			// 		<<std::endl;
 			// m_root_ = createOctant(ctr[0], ctr[1], ctr[2], maxextent, 0, N - 1, N);
 			m_root_ = createOctant(ctr[0], ctr[1], ctr[2], maxextent, points);
-			// std::cout<<"createOctant success!"<<std::endl;
+			// //std::cout<<"createOctant success!"<<std::endl;
 			for (size_t i = 0; i < points.size(); ++i)
 			{
 				delete [] points[i];
@@ -605,10 +605,10 @@ namespace thuni
 				initialize(pts_);
 				return;
 			}
-			// std::cout<<"update start\n";
+			// //std::cout<<"update start\n";
 			m_downSize = down_size;
 			size_t pts_num = pts_.size();
-			// std::cout<<"updateOctant init: "<<pts_num<<std::endl;
+			// //std::cout<<"updateOctant init: "<<pts_num<<std::endl;
 			std::vector<double *> points_tmp;
 			int dim_ = 3;
 			points_tmp.resize(pts_num, 0);
@@ -648,7 +648,7 @@ namespace thuni
 			if(cloud_index == 0)
 				return;
 			points_tmp.resize(cloud_index);
-			// std::cout<<"updateOctant filter: "<<cloud_index<<std::endl;
+			// //std::cout<<"updateOctant filter: "<<cloud_index<<std::endl;
 			// 先创建一个对当前节点全包围的父节点，首先确定父节点中心所在的方向
 			static const double factor[] = {-0.5f, 0.5f};
 			// 判断是否存在越界
@@ -698,10 +698,10 @@ namespace thuni
 
 			if (points_tmp.size() == 0)
 				return;
-			// std::cout<<"updateOctant start: "<<points_tmp.size()<<std::endl;;
+			// //std::cout<<"updateOctant start: "<<points_tmp.size()<<std::endl;;
 			last_pts_num += points_tmp.size();
 			updateOctant(m_root_, points_tmp);
-			// std::cout<<"updateOctant end\n";
+			// //std::cout<<"updateOctant end\n";
 			for (size_t i = 0; i < points_tmp.size(); ++i)
 			{
 				delete [] points_tmp[i];
@@ -780,7 +780,7 @@ namespace thuni
 				return 0;
 			// MANUAL_HEAP<size_t> heap(k);
 			// knnNeighbors(m_root_, query, heap);
-			// std::cout<<"knnNeighbors start"<<std::endl;
+			// //std::cout<<"knnNeighbors start"<<std::endl;
 			double query_[3] = {query.x, query.y, query.z};
 			// run_details.clear();
 			// run_details.start();
@@ -812,7 +812,7 @@ namespace thuni
 				return 0;
 			// MANUAL_HEAP<size_t> heap(k);
 			// knnNeighbors(m_root_, query, heap);
-			// std::cout<<"knnNeighbors start"<<std::endl;
+			// //std::cout<<"knnNeighbors start"<<std::endl;
 			double query_[3] = {query.x, query.y, query.z};
 			// run_details.clear();
 			// run_details.start();
@@ -840,7 +840,7 @@ namespace thuni
 				return 0;
 			// MANUAL_HEAP<size_t> heap(k);
 			// knnNeighbors(m_root_, query, heap);
-			// std::cout<<"knnNeighbors start"<<std::endl;
+			// //std::cout<<"knnNeighbors start"<<std::endl;
 			double query_[3] = {query.x, query.y, query.z};
 			// run_details.clear();
 			// run_details.start();
@@ -1023,13 +1023,13 @@ namespace thuni
 				if (extent > maxextent)
 					maxextent = extent;
 			}
-			// std::cout<<"maxextent: "<<maxextent<<", "
+			// //std::cout<<"maxextent: "<<maxextent<<", "
 			// 		<<"min: "<<min[0]<<", "<<min[1]<<", "<<min[2]<<", "
 			// 		<<"max: "<<max[0]<<", "<<max[1]<<", "<<max[2]<<", "
 			// 		<<std::endl;
 			// m_root_ = createOctant(ctr[0], ctr[1], ctr[2], maxextent, 0, N - 1, N);
 			m_root_ = createOctant_record(ctr[0], ctr[1], ctr[2], maxextent, points);
-			// std::cout<<"createOctant success!"<<std::endl;
+			// //std::cout<<"createOctant success!"<<std::endl;
 			for (size_t i = 0; i < points.size(); ++i)
 			{
 				delete [] points[i];
@@ -1094,10 +1094,10 @@ namespace thuni
 				initialize_record(pts_);
 				return;
 			}
-			// std::cout<<"update start\n";
+			// //std::cout<<"update start\n";
 			m_downSize = down_size;
 			size_t pts_num = pts_.size();
-			// std::cout<<"updateOctant init: "<<pts_num<<std::endl;
+			// //std::cout<<"updateOctant init: "<<pts_num<<std::endl;
 			std::vector<double *> points_tmp;
 			int dim_ = 3;
 			points_tmp.resize(pts_num, 0);
@@ -1137,7 +1137,7 @@ namespace thuni
 			if(cloud_index == 0)
 				return;
 			points_tmp.resize(cloud_index);
-			// std::cout<<"updateOctant filter: "<<cloud_index<<std::endl;
+			// //std::cout<<"updateOctant filter: "<<cloud_index<<std::endl;
 			// 先创建一个对当前节点全包围的父节点，首先确定父节点中心所在的方向
 			static const double factor[] = {-0.5f, 0.5f};
 			// 判断是否存在越界
@@ -1189,10 +1189,10 @@ namespace thuni
 
 			if (points_tmp.size() == 0)
 				return;
-			// std::cout<<"updateOctant start: "<<points_tmp.size()<<std::endl;;
+			// //std::cout<<"updateOctant start: "<<points_tmp.size()<<std::endl;;
 			last_pts_num += points_tmp.size();
 			updateOctant_record(m_root_, points_tmp);
-			// std::cout<<"updateOctant end\n";
+			// //std::cout<<"updateOctant end\n";
 			for (size_t i = 0; i < points_tmp.size(); ++i)
 			{
 				delete [] points_tmp[i];
@@ -1201,7 +1201,7 @@ namespace thuni
 
 		void updateOctant_record(Octant *octant, const std::vector<double *> & points)
 		{
-			// std::cout<<"updateOctant0 start "<<points.size()<<std::endl;
+			// //std::cout<<"updateOctant0 start "<<points.size()<<std::endl;
 			static const double factor[] = {-0.5f, 0.5f};
 			const double x = octant->x, y = octant->y, z = octant->z, extent = octant->extent;
 			octant->isActive = true; // 更新状态
@@ -1369,7 +1369,7 @@ namespace thuni
 
 		void updateOctant(Octant *octant, const std::vector<double *> & points)
 		{
-			// std::cout<<"updateOctant0 start "<<points.size()<<std::endl;
+			// //std::cout<<"updateOctant0 start "<<points.size()<<std::endl;
 			static const double factor[] = {-0.5f, 0.5f};
 			const double x = octant->x, y = octant->y, z = octant->z, extent = octant->extent;
 			octant->isActive = true; // 更新状态

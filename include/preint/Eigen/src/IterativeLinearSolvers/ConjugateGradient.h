@@ -141,8 +141,8 @@ struct traits<ConjugateGradient<_MatrixType,_UpLo,_Preconditioner> >
     ConjugateGradient<SparseMatrix<double>, Lower|Upper> cg;
     cg.compute(A);
     x = cg.solve(b);
-    std::cout << "#iterations:     " << cg.iterations() << std::endl;
-    std::cout << "estimated error: " << cg.error()      << std::endl;
+    //std::cout << "#iterations:     " << cg.iterations() << std::endl;
+    //std::cout << "estimated error: " << cg.error()      << std::endl;
     // update b, and solve again
     x = cg.solve(b);
     \endcode

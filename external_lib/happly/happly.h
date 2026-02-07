@@ -1982,7 +1982,7 @@ private:
     for (Element& elem : elements) {
 
       if (verbose) {
-        std::cout << "  - Processing element: " << elem.name << std::endl;
+        //std::cout << "  - Processing element: " << elem.name << std::endl;
       }
 
       for (size_t iP = 0; iP < elem.properties.size(); iP++) {
@@ -2029,7 +2029,7 @@ private:
     for (Element& elem : elements) {
 
       if (verbose) {
-        std::cout << "  - Processing element: " << elem.name << std::endl;
+        //std::cout << "  - Processing element: " << elem.name << std::endl;
       }
 
       for (size_t iP = 0; iP < elem.properties.size(); iP++) {
@@ -2062,7 +2062,7 @@ private:
     for (Element& elem : elements) {
 
       if (verbose) {
-        std::cout << "  - Processing element: " << elem.name << std::endl;
+        //std::cout << "  - Processing element: " << elem.name << std::endl;
       }
 
       for (size_t iP = 0; iP < elem.properties.size(); iP++) {

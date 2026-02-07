@@ -325,10 +325,10 @@ class LidarOdometryNode : public rclcpp::Node, public LidarOdometryPublisher
             }
             auto [incoming_pts, temp_has_intensity, temp_has_channel, is_2d] = pointCloud2MsgToPtsVec<double>(pc_msg, time_field_multiplier_, true, broken_channels_, absolute_time_);
             std::shared_ptr<std::vector<Pointd>> incoming_pts_ptr = std::make_shared<std::vector<Pointd>>(std::move(incoming_pts));
-            std::cout << "Point cloud with " << incoming_pts_ptr->size() << " points received." << std::endl;
+            //std::cout << "Point cloud with " << incoming_pts_ptr->size() << " points received." << std::endl;
             rclcpp::Time header_time(pc_msg->header.stamp);
-            std::cout << "At " << std::fixed << header_time.nanoseconds() << std::endl;
-            std::cout << std::fixed << "First point time: " << incoming_pts_ptr->at(0).t << ", last point time: " << incoming_pts_ptr->at(incoming_pts_ptr->size()-1).t << std::endl;
+            //std::cout << "At " << std::fixed << header_time.nanoseconds() << std::endl;
+            //std::cout << std::fixed << "First point time: " << incoming_pts_ptr->at(0).t << ", last point time: " << incoming_pts_ptr->at(incoming_pts_ptr->size()-1).t << std::endl;
 
             
             // Scale the point cloud if needed

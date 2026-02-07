@@ -52,7 +52,7 @@ class SubmapManager
 
             if(localization_)
             {
-                std::cout << "Loading map from: " << map_path_ << std::endl;
+                //std::cout << "Loading map from: " << map_path_ << std::endl;
                 if(using_submaps_)
                 {
                     // Read the submap files
@@ -211,7 +211,7 @@ class SubmapManager
                     int new_map_id = graph_nodes_[best_node_id].second;
                     if(new_map_id != current_map_id_)
                     {
-                        std::cout << "Switching from submap " << current_map_id_ << " to submap " << new_map_id << "\n\n\n\n\n" << std::endl;
+                        //std::cout << "Switching from submap " << current_map_id_ << " to submap " << new_map_id << "\n\n\n\n\n" << std::endl;
                         current_map_ = std::make_shared<MapDistField>(options_);
                         current_map_->loadMap(submap_paths_[new_map_id]);
                         current_map_->set2D(is_2d_);
@@ -370,7 +370,7 @@ class SubmapManager
             {
                 ply_path = map_path_ + "map.ply";
             }
-            std::cout << "Writing map to: " << ply_path << std::endl;
+            //std::cout << "Writing map to: " << ply_path << std::endl;
 
             auto lambda = [] (std::shared_ptr<MapDistField> map, const std::string& path) {
                 map->writeMap(path);
@@ -389,7 +389,7 @@ class SubmapManager
                 traj_path = map_path_ + "trajectory_map.csv";
             }
 
-            std::cout << "Writing trajectory to: " << traj_path << std::endl;            
+            //std::cout << "Writing trajectory to: " << traj_path << std::endl;            
             std::ofstream traj_file(traj_path);
             if(!traj_file)
             {

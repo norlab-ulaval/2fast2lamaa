@@ -57,6 +57,7 @@ target_link_libraries(lice
   PUBLIC
     Eigen3::Eigen
     Ceres::ceres
+    rclcpp::rclcpp
 )
 
 target_include_directories(lice
@@ -127,11 +128,13 @@ ament_target_dependencies(gp_map
 
 ament_target_dependencies(map_cleaner
   Eigen3
-  Ceres)
+  Ceres
+  rclcpp)
 
 ament_target_dependencies(offline_loop_closure
   Eigen3
-  Ceres)
+  Ceres
+  rclcpp)
 
 ament_target_dependencies(lidar_2d_conversion
   rclcpp

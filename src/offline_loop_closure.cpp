@@ -22,7 +22,7 @@ int main(int argc, char** argv)
 
     // Handle help option
     if (result.count("help")) {
-        std::cout << options.help() << std::endl;
+        //std::cout << options.help() << std::endl;
         return 0;
     }
 

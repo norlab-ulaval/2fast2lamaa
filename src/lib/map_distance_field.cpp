@@ -248,14 +248,14 @@ std::pair<double, double> Cell::revertingRQAndDiff(const double& occ) const
 
 void Cell::testKernelAndRevert()
 {
-    std::cout << "Testing kernel and reverting function" << std::endl;
+    //std::cout << "Testing kernel and reverting function" << std::endl;
     // Create random points around the cell center
     int count_A = 10;
     int count_B = 1;
     MatX pts_A = MatX::Random(count_A, 3);
     MatX pts_B = MatX::Random(count_B, 3);
     auto [K, K_diff_1, K_diff_2, K_diff_3] = kernelRQAndDiff(pts_B, pts_A);
-    std::cout << "K:\n" << K << std::endl;
+    //std::cout << "K:\n" << K << std::endl;
     MatX K_diff_1_num(count_B, count_A);
     MatX K_diff_2_num(count_B, count_A);
     MatX K_diff_3_num(count_B, count_A);
@@ -272,16 +272,16 @@ void Cell::testKernelAndRevert()
     K_diff_2_num = (kernelRQ(pts_B_plus_2, pts_A) - K) / eps;
     K_diff_3_num = (kernelRQ(pts_B_plus_3, pts_A) - K) / eps;
 
-    std::cout << "K_diff_1:\n" << K_diff_1 << std::endl;
-    std::cout << "K_diff_1_num:\n" << K_diff_1_num << std::endl;
-    std::cout << "K_diff_2:\n" << K_diff_2 << std::endl;
-    std::cout << "K_diff_2_num:\n" << K_diff_2_num << std::endl;
-    std::cout << "K_diff_3:\n" << K_diff_3 << std::endl;
-    std::cout << "K_diff_3_num:\n" << K_diff_3_num << std::endl;
+    //std::cout << "K_diff_1:\n" << K_diff_1 << std::endl;
+    //std::cout << "K_diff_1_num:\n" << K_diff_1_num << std::endl;
+    //std::cout << "K_diff_2:\n" << K_diff_2 << std::endl;
+    //std::cout << "K_diff_2_num:\n" << K_diff_2_num << std::endl;
+    //std::cout << "K_diff_3:\n" << K_diff_3 << std::endl;
+    //std::cout << "K_diff_3_num:\n" << K_diff_3_num << std::endl;
 
-    std::cout << "Max diff K diff 1: " << (K_diff_1 - K_diff_1_num).cwiseAbs().maxCoeff() << std::endl;
-    std::cout << "Max diff K diff 2: " << (K_diff_2 - K_diff_2_num).cwiseAbs().maxCoeff() << std::endl;
-    std::cout << "Max diff K diff 3: " << (K_diff_3 - K_diff_3_num).cwiseAbs().maxCoeff() << std::endl;
+    //std::cout << "Max diff K diff 1: " << (K_diff_1 - K_diff_1_num).cwiseAbs().maxCoeff() << std::endl;
+    //std::cout << "Max diff K diff 2: " << (K_diff_2 - K_diff_2_num).cwiseAbs().maxCoeff() << std::endl;
+    //std::cout << "Max diff K diff 3: " << (K_diff_3 - K_diff_3_num).cwiseAbs().maxCoeff() << std::endl;
 
 
     int N = 10;
@@ -299,18 +299,18 @@ void Cell::testKernelAndRevert()
         dists_2(i) = revertingRQ(occs(i)+eps);
         d_dists_num(i) = (dists_2(i) - dist) / eps;
     }
-    std::cout << "occs:\n" << occs.transpose() << std::endl;
-    std::cout << "dists:\n" << dists.transpose() << std::endl;
-    std::cout << "dists_2:\n" << dists_2.transpose() << std::endl;
-    std::cout << "d_dists:\n" << d_dists.transpose() << std::endl;
-    std::cout << "d_dists_num:\n" << d_dists_num.transpose() << std::endl;
-    std::cout << "Max diff d_dists: " << (d_dists - d_dists_num).cwiseAbs().maxCoeff() << std::endl;
+    //std::cout << "occs:\n" << occs.transpose() << std::endl;
+    //std::cout << "dists:\n" << dists.transpose() << std::endl;
+    //std::cout << "dists_2:\n" << dists_2.transpose() << std::endl;
+    //std::cout << "d_dists:\n" << d_dists.transpose() << std::endl;
+    //std::cout << "d_dists_num:\n" << d_dists_num.transpose() << std::endl;
+    //std::cout << "Max diff d_dists: " << (d_dists - d_dists_num).cwiseAbs().maxCoeff() << std::endl;
 
 
     double test_dist = 0.8341;
     double test_occ = kernelRQ(Vec3(test_dist, 0, 0).transpose(), Vec3::Zero().transpose())(0,0);
     double test_dist_revert = revertingRQ(test_occ);
-    std::cout << "Test dist: " << test_dist << ", test occ: " << test_occ << ", test dist revert: " << test_dist_revert << std::endl;
+    //std::cout << "Test dist: " << test_dist << ", test occ: " << test_occ << ", test dist revert: " << test_dist_revert << std::endl;
 
 }
 
@@ -484,7 +484,7 @@ Mat4 MapDistField::registerPts(const std::vector<Pointd>& pts, const Mat4& pose,
     {
         cleanCells();
     }
-    std::cout << "Registering points" << std::endl;
+    //std::cout << "Registering points" << std::endl;
     Vec6 pose_correction_state = Vec6::Zero();
     
     int num_neighbors_save = num_neighbors_;
@@ -504,7 +504,7 @@ Mat4 MapDistField::registerPts(const std::vector<Pointd>& pts, const Mat4& pose,
 
     StopWatch sw;
     sw.start();
-    std::cout << "Computing weights" << std::endl;
+    //std::cout << "Computing weights" << std::endl;
     std::vector<double> weights(pts.size(), 1.0);
     if(opt_.use_temporal_weights)
     {
@@ -520,7 +520,7 @@ Mat4 MapDistField::registerPts(const std::vector<Pointd>& pts, const Mat4& pose,
         }
         if(current_time - min_time <= 0)
         {
-            std::cout << "MapDistField::registerPts: Warning: current_time <= min_time (probably something funky with points' timestamps). Using uniform weights." << std::endl;
+            //std::cout << "MapDistField::registerPts: Warning: current_time <= min_time (probably something funky with points' timestamps). Using uniform weights." << std::endl;
             for(size_t i = 0; i < pts.size(); i++)
             {
                 weights[i] = 1.0;
@@ -544,7 +544,7 @@ Mat4 MapDistField::registerPts(const std::vector<Pointd>& pts, const Mat4& pose,
     options.linear_solver_type = ceres::DENSE_NORMAL_CHOLESKY;
     options.max_num_iterations = max_iterations;
     options.function_tolerance = 1e-4;
-    options.minimizer_progress_to_stdout = true;
+    options.minimizer_progress_to_stdout = false;
 
 
     // Optimization with openMP in the cost function
@@ -555,14 +555,14 @@ Mat4 MapDistField::registerPts(const std::vector<Pointd>& pts, const Mat4& pose,
 
     ceres::Solver::Summary summary;
     ceres::Solve(options, &problem, &summary);
-    std::cout << summary.FullReport() << std::endl;
+    //std::cout << summary.FullReport() << std::endl;
 
 
 
     Mat3 R = expMap(pose_correction_state.segment<3>(3));
     Vec3 pos = pose_correction_state.segment<3>(0);
 
-    std::cout << "\n\n\n\n----------------\nPose correction: \n" << pose_correction_state.transpose() << "----------------\n\n\n\n" << std::endl;
+    //std::cout << "\n\n\n\n----------------\nPose correction: \n" << pose_correction_state.transpose() << "----------------\n\n\n\n" << std::endl;
 
     // Log the pose correction
     std::string log_path = "/tmp/localization_corrections.csv";
@@ -932,13 +932,13 @@ void MapDistField::addPts(const std::vector<Pointd>& pts, const Mat4& pose, cons
 
     sw.stop();
     sw.print("Time to transform and add points");
-    std::cout << "Number of cells in the map: " << num_cells_ << std::endl;
-    std::cout << "Number in hash map: " << hash_map_->size() << std::endl;
-    std::cout << "Number in ioctree: " << ioctree_.size() << std::endl;
+    //std::cout << "Number of cells in the map: " << num_cells_ << std::endl;
+    //std::cout << "Number in hash map: " << hash_map_->size() << std::endl;
+    //std::cout << "Number in ioctree: " << ioctree_.size() << std::endl;
     if(opt_.edge_field)
     {
-        std::cout << "Number in edge map: " << hash_map_edge_->size() << std::endl;
-        std::cout << "Number in ioctree edge: " << ioctree_edge_.size() << std::endl;
+        //std::cout << "Number in edge map: " << hash_map_edge_->size() << std::endl;
+        //std::cout << "Number in ioctree edge: " << ioctree_edge_.size() << std::endl;
     }
 }
 
@@ -978,7 +978,7 @@ std::vector<Pointd> MapDistField::freeSpaceCarving(const std::vector<Pointd>& pt
             map_pts_to_remove.insert(pt);
         }
 
-        std::cout << "Number of points to remove from current scan: " << nb_points_to_remove << ", from last scan: " << map_pts_to_remove.size() - nb_points_to_remove << ", total map points: " << num_cells_ << std::endl; 
+        //std::cout << "Number of points to remove from current scan: " << nb_points_to_remove << ", from last scan: " << map_pts_to_remove.size() - nb_points_to_remove << ", total map points: " << num_cells_ << std::endl; 
     }
 
     std::vector<Pointd> pts_to_add;
@@ -1083,7 +1083,7 @@ std::vector<Pointd> MapDistField::getPts()
         pts.push_back(Pointd(pt[0], pt[1], pt[2], count, intensity));
         pts.back().type = (hash_map_edge_ && (hash_map_edge_->count(pair.second) > 0)) ? 2 : 1;
     }
-    std::cout << "Number of cells: " << pts.size() << std::endl;
+    //std::cout << "Number of cells: " << pts.size() << std::endl;
     return pts;
 }
 
@@ -1353,8 +1353,8 @@ std::vector<CellPtr> MapDistField::getNeighborCells(const Vec3& pt)
 
 void MapDistField::writeMap(const std::string& filename)
 {
-    std::cout << "Writing map to file: " << filename << std::endl;
-    std::cout << "Querying points and normals ...." << std::endl;
+    //std::cout << "Writing map to file: " << filename << std::endl;
+    //std::cout << "Querying points and normals ...." << std::endl;
 
     StopWatch sw;
     sw.start();
@@ -1470,13 +1470,13 @@ void MapDistField::loadMap(const std::string& filename)
     
     clear();
 
-    std::cout << "Loading map from file: " << filename << std::endl;
+    //std::cout << "Loading map from file: " << filename << std::endl;
     happly::PLYData ply_in(filename);
 
     std::vector<std::array<double, 3> > pts = ply_in.getVertexPositions();
     sw.stop();
     sw.print("Time to read points from file");
-    std::cout << "Number of points in the map: " << pts.size() << std::endl;
+    //std::cout << "Number of points in the map: " << pts.size() << std::endl;
 
     std::vector<double> types;
     if(ply_in.getElement("vertex").hasProperty("type"))

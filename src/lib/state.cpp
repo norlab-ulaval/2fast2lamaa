@@ -387,7 +387,7 @@ std::pair<Vec3, Vec3> State::queryTwist(
 
 void testStateMonoJacobians(LidarOdometryMode mode)
 {
-    std::cout << "============== testStateJacobians (analytical then numerical)" << std::endl;
+    //std::cout << "============== testStateJacobians (analytical then numerical)" << std::endl;
 
     // Create fake IMU data with sinuses
     ugpm::ImuData imu_data;
@@ -474,32 +474,32 @@ void testStateMonoJacobians(LidarOdometryMode mode)
     }
 
     // Compare the jacobians
-    std::cout << std::endl << std::endl;
+    //std::cout << std::endl << std::endl;
     for(int j = 0; j < 5; ++j)
     {
         if(query_jacobian[j].first.size() > 0)
         {
-            std::cout << "Jacobian query state " << j << " pos" << std::endl;
-            std::cout << query_jacobian[j].first << std::endl;
-            std::cout << "vs" << std::endl;
-            std::cout << query_jacobian_num[j].first << std::endl;
+            //std::cout << "Jacobian query state " << j << " pos" << std::endl;
+            //std::cout << query_jacobian[j].first << std::endl;
+            //std::cout << "vs" << std::endl;
+            //std::cout << query_jacobian_num[j].first << std::endl;
         }
         else
         {
-            std::cout << "Jacobian query state " << j << " pos" << std::endl;
-            std::cout << "Empty" << std::endl;
+            //std::cout << "Jacobian query state " << j << " pos" << std::endl;
+            //std::cout << "Empty" << std::endl;
         }
         if(query_jacobian[j].second.size() > 0)
         {
-            std::cout << "Jacobian query state " << j << " rot" << std::endl;
-            std::cout << query_jacobian[j].second << std::endl;
-            std::cout << "vs" << std::endl;
-            std::cout << query_jacobian_num[j].second << std::endl;
+            //std::cout << "Jacobian query state " << j << " rot" << std::endl;
+            //std::cout << query_jacobian[j].second << std::endl;
+            //std::cout << "vs" << std::endl;
+            //std::cout << query_jacobian_num[j].second << std::endl;
         }
         else
         {
-            std::cout << "Jacobian query state " << j << " rot" << std::endl;
-            std::cout << "Empty" << std::endl;
+            //std::cout << "Jacobian query state " << j << " rot" << std::endl;
+            //std::cout << "Empty" << std::endl;
         }
     }
 

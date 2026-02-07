@@ -16,13 +16,13 @@ namespace ugpm
 
         void print() const
         {
-            std::cout << "Sine properties" << std::endl;
-            std::cout << "  Frequencies [Hz]: "
+            //std::cout << "Sine properties" << std::endl;
+            //std::cout << "  Frequencies [Hz]: "
                 << freq[0] << "   "
                 << freq[1] << "   "
                 << freq[2] << "   "
                 << std::endl;
-            std::cout << "  Amplitudes [Hz]: "
+            //std::cout << "  Amplitudes [Hz]: "
                 << amp[0] << "   "
                 << amp[1] << "   "
                 << amp[2] << "   "

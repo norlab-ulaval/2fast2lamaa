@@ -276,11 +276,11 @@ struct sparse_solve_triangular_sparse_selector<Lhs,Rhs,Mode,UpLo,ColMajor>
       {
         ++ count;
 //         std::cerr << "fill " << it.index() << ", " << col << "\n";
-//         std::cout << it.value() << "  ";
+//         //std::cout << it.value() << "  ";
         // FIXME use insertBack
         res.insert(it.index(), col) = it.value();
       }
-//       std::cout << "tempVector.nonZeros() == " << int(count) << " / " << (other.rows()) << "\n";
+//       //std::cout << "tempVector.nonZeros() == " << int(count) << " / " << (other.rows()) << "\n";
     }
     res.finalize();
     other = res.markAsRValue();

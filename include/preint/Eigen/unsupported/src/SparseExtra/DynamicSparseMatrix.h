@@ -266,7 +266,7 @@ template<typename _Scalar, int _Options, typename _StorageIndex>
 
     inline void swap(DynamicSparseMatrix& other)
     {
-      //EIGEN_DBG_SPARSE(std::cout << "SparseMatrix:: swap\n");
+      //EIGEN_DBG_SPARSE(//std::cout << "SparseMatrix:: swap\n");
       std::swap(m_innerSize, other.m_innerSize);
       //std::swap(m_outerSize, other.m_outerSize);
       m_data.swap(other.m_data);

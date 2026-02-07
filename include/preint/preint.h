@@ -131,7 +131,7 @@ namespace ugpm
                 }
                 else
                 {
-                    std::cout << "WARNING: Stopping a StopWatch that is not running, returning negative time" << std::endl;
+                    //std::cout << "WARNING: Stopping a StopWatch that is not running, returning negative time" << std::endl;
                     return -1;
                 }
             }
@@ -149,7 +149,7 @@ namespace ugpm
 
             void print(std::string str)
             {
-                std::cout << str << " " << std::chrono::duration_cast<std::chrono::microseconds>(duration_).count()/1000.0 << " ms" << std::endl;
+                //std::cout << str << " " << std::chrono::duration_cast<std::chrono::microseconds>(duration_).count()/1000.0 << " ms" << std::endl;
             }
 
         private:
@@ -1571,7 +1571,7 @@ namespace ugpm
     {
         if(!imu_data_.checkFrequency())
         {
-            std::cout << "WARNING: There might be an issue with the IMU data timestamps. This is not handled in the current version (can lead to undefined behavior or alter the performance of the preintegration)." << std::endl;
+            //std::cout << "WARNING: There might be an issue with the IMU data timestamps. This is not handled in the current version (can lead to undefined behavior or alter the performance of the preintegration)." << std::endl;
         }
 
         // If not by chunks

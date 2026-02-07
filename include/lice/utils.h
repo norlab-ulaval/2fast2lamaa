@@ -66,7 +66,7 @@ class StopWatch
             }
             else
             {
-                std::cout << "WARNING: Stopping a StopWatch that is not running, returning negative time" << std::endl;
+                //std::cout << "WARNING: Stopping a StopWatch that is not running, returning negative time" << std::endl;
                 return -1;
             }
         }
@@ -85,7 +85,7 @@ class StopWatch
 
         void print(std::string str)
         {
-            std::cout << str << " " << std::chrono::duration_cast<std::chrono::microseconds>(duration_).count()/1000.0 << " ms" << std::endl;
+            //std::cout << str << " " << std::chrono::duration_cast<std::chrono::microseconds>(duration_).count()/1000.0 << " ms" << std::endl;
         }
 
     private:
@@ -103,7 +103,7 @@ inline std::vector<int> generateRandomIndexes(int start, int end, int nb)
     std::vector<int> output;
     if(nb > end - start)
     {
-        std::cout << "ERROR: generateRandomIndexes: nb > end - start" << std::endl;
+        //std::cout << "ERROR: generateRandomIndexes: nb > end - start" << std::endl;
         return output;
     }
     std::vector<int> indexes;
@@ -159,7 +159,7 @@ inline std::vector<float> splitString(std::string str, std::string delimiter)
         }
         catch(const std::exception& e)
         {
-            std::cout << "ERROR: splitString: " << e.what() << std::endl;
+            //std::cout << "ERROR: splitString: " << e.what() << std::endl;
             return output;
         }
     }
@@ -169,7 +169,7 @@ inline std::vector<float> splitString(std::string str, std::string delimiter)
     }
     catch(const std::exception& e)
     {
-        std::cout << "ERROR: splitString: " << e.what() << std::endl;
+        //std::cout << "ERROR: splitString: " << e.what() << std::endl;
         return output;
     }
     return output;
@@ -180,16 +180,16 @@ inline std::vector<float> splitString(std::string str, std::string delimiter)
 template <typename T>
 void printVector(std::vector<T> vec)
 {
-    std::cout << "[";
+    //std::cout << "[";
     for(int i = 0; i < vec.size(); i++)
     {
-        std::cout << vec[i];
+        //std::cout << vec[i];
         if(i < vec.size() - 1)
         {
-            std::cout << ", ";
+            //std::cout << ", ";
         }
     }
-    std::cout << "]" << std::endl;
+    //std::cout << "]" << std::endl;
 }
 
 

@@ -257,7 +257,7 @@ int main(int argc, char** argv)
 
     if (result.count("help"))
     {
-      std::cout << options.help() << std::endl;
+      //std::cout << options.help() << std::endl;
       exit(0);
     }
     bool debug = result["debug"].as<bool>();

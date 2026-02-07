@@ -545,7 +545,7 @@ public:
             //            for (Index row = 0; row < rows(); row++) {
             //
             //                const Index nbLowerElts = m_rowStartIndex[row + 1] - m_rowStartIndex[row];
-            //                //                std::cout << "nbLowerElts" << nbLowerElts << std::endl;
+            //                //                //std::cout << "nbLowerElts" << nbLowerElts << std::endl;
             //                memcpy(newArray + dataIdx, m_data.m_lower + m_rowStartIndex[row], nbLowerElts * sizeof (Scalar));
             //                m_rowStartIndex[row] = dataIdx;
             //                dataIdx += nbLowerElts;
@@ -649,7 +649,7 @@ public:
     }
 
     inline void swap(SkylineMatrix & other) {
-        //EIGEN_DBG_SKYLINE(std::cout << "SkylineMatrix:: swap\n");
+        //EIGEN_DBG_SKYLINE(//std::cout << "SkylineMatrix:: swap\n");
         std::swap(m_colStartIndex, other.m_colStartIndex);
         std::swap(m_rowStartIndex, other.m_rowStartIndex);
         std::swap(m_innerSize, other.m_innerSize);
@@ -658,7 +658,7 @@ public:
     }
 
     inline SkylineMatrix & operator=(const SkylineMatrix & other) {
-        std::cout << "SkylineMatrix& operator=(const SkylineMatrix& other)\n";
+        //std::cout << "SkylineMatrix& operator=(const SkylineMatrix& other)\n";
         if (other.isRValue()) {
             swap(other.const_cast_derived());
         } else {
@@ -685,32 +685,32 @@ public:
     friend std::ostream & operator <<(std::ostream & s, const SkylineMatrix & m) {
 
         EIGEN_DBG_SKYLINE(
-        std::cout << "upper elements : " << std::endl;
+        //std::cout << "upper elements : " << std::endl;
         for (Index i = 0; i < m.m_data.upperSize(); i++)
-            std::cout << m.m_data.upper(i) << "\t";
-        std::cout << std::endl;
-        std::cout << "upper profile : " << std::endl;
+            //std::cout << m.m_data.upper(i) << "\t";
+        //std::cout << std::endl;
+        //std::cout << "upper profile : " << std::endl;
         for (Index i = 0; i < m.m_data.upperProfileSize(); i++)
-            std::cout << m.m_data.upperProfile(i) << "\t";
-        std::cout << std::endl;
-        std::cout << "lower startIdx : " << std::endl;
+            //std::cout << m.m_data.upperProfile(i) << "\t";
+        //std::cout << std::endl;
+        //std::cout << "lower startIdx : " << std::endl;
         for (Index i = 0; i < m.m_data.upperProfileSize(); i++)
-            std::cout << (IsRowMajor ? m.m_colStartIndex[i] : m.m_rowStartIndex[i]) << "\t";
-        std::cout << std::endl;
+            //std::cout << (IsRowMajor ? m.m_colStartIndex[i] : m.m_rowStartIndex[i]) << "\t";
+        //std::cout << std::endl;
 
 
-        std::cout << "lower elements : " << std::endl;
+        //std::cout << "lower elements : " << std::endl;
         for (Index i = 0; i < m.m_data.lowerSize(); i++)
-            std::cout << m.m_data.lower(i) << "\t";
-        std::cout << std::endl;
-        std::cout << "lower profile : " << std::endl;
+            //std::cout << m.m_data.lower(i) << "\t";
+        //std::cout << std::endl;
+        //std::cout << "lower profile : " << std::endl;
         for (Index i = 0; i < m.m_data.lowerProfileSize(); i++)
-            std::cout << m.m_data.lowerProfile(i) << "\t";
-        std::cout << std::endl;
-        std::cout << "lower startIdx : " << std::endl;
+            //std::cout << m.m_data.lowerProfile(i) << "\t";
+        //std::cout << std::endl;
+        //std::cout << "lower startIdx : " << std::endl;
         for (Index i = 0; i < m.m_data.lowerProfileSize(); i++)
-            std::cout << (IsRowMajor ? m.m_rowStartIndex[i] : m.m_colStartIndex[i]) << "\t";
-        std::cout << std::endl;
+            //std::cout << (IsRowMajor ? m.m_rowStartIndex[i] : m.m_colStartIndex[i]) << "\t";
+        //std::cout << std::endl;
         );
         for (Index rowIdx = 0; rowIdx < m.rows(); rowIdx++) {
             for (Index colIdx = 0; colIdx < m.cols(); colIdx++) {

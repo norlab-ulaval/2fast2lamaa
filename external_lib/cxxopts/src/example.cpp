@@ -82,7 +82,7 @@ parse(int argc, const char* argv[])
 
     if (result.count("help"))
     {
-      std::cout << options.help({"", "Group"}) << std::endl;
+      //std::cout << options.help({"", "Group"}) << std::endl;
       return true;
     }
 
@@ -92,99 +92,99 @@ parse(int argc, const char* argv[])
       {
         for(const auto &kv: result)
         {
-          std::cout << kv.key() << " = " << kv.value() << std::endl;
+          //std::cout << kv.key() << " = " << kv.value() << std::endl;
         }
       }
       else
       {
-        std::cout << result.arguments_string() << std::endl;
+        //std::cout << result.arguments_string() << std::endl;
       }
       return true;
     }
 
     if (apple)
     {
-      std::cout << "Saw option ‘a’ " << result.count("a") << " times " <<
+      //std::cout << "Saw option ‘a’ " << result.count("a") << " times " <<
         std::endl;
     }
 
     if (result.count("b"))
     {
-      std::cout << "Saw option ‘b’" << std::endl;
+      //std::cout << "Saw option ‘b’" << std::endl;
     }
 
     if (result.count("char"))
     {
-      std::cout << "Saw a character ‘" << result["char"].as<char>() << "’" << std::endl;
+      //std::cout << "Saw a character ‘" << result["char"].as<char>() << "’" << std::endl;
     }
 
     if (result.count("f"))
     {
       auto& ff = result["f"].as<std::vector<std::string>>();
-      std::cout << "Files" << std::endl;
+      //std::cout << "Files" << std::endl;
       for (const auto& f : ff)
       {
-        std::cout << f << std::endl;
+        //std::cout << f << std::endl;
       }
     }
 
     if (result.count("input"))
     {
-      std::cout << "Input = " << result["input"].as<std::string>()
+      //std::cout << "Input = " << result["input"].as<std::string>()
         << std::endl;
     }
 
     if (result.count("output"))
     {
-      std::cout << "Output = " << result["output"].as<std::string>()
+      //std::cout << "Output = " << result["output"].as<std::string>()
         << std::endl;
     }
 
     if (result.count("positional"))
     {
-      std::cout << "Positional = {";
+      //std::cout << "Positional = {";
       auto& v = result["positional"].as<std::vector<std::string>>();
       for (const auto& s : v) {
-        std::cout << s << ", ";
+        //std::cout << s << ", ";
       }
-      std::cout << "}" << std::endl;
+      //std::cout << "}" << std::endl;
     }
 
     if (result.count("int"))
     {
-      std::cout << "int = " << result["int"].as<int>() << std::endl;
+      //std::cout << "int = " << result["int"].as<int>() << std::endl;
     }
 
     if (result.count("float"))
     {
-      std::cout << "float = " << result["float"].as<float>() << std::endl;
+      //std::cout << "float = " << result["float"].as<float>() << std::endl;
     }
 
     if (result.count("vector"))
     {
-      std::cout << "vector = ";
+      //std::cout << "vector = ";
       const auto values = result["vector"].as<std::vector<double>>();
       for (const auto& v : values) {
-        std::cout << v << ", ";
+        //std::cout << v << ", ";
       }
-      std::cout << std::endl;
+      //std::cout << std::endl;
     }
 
-    std::cout << "Arguments remain = " << argc << std::endl;
+    //std::cout << "Arguments remain = " << argc << std::endl;
 
     auto arguments = result.arguments();
-    std::cout << "Saw " << arguments.size() << " arguments" << std::endl;
+    //std::cout << "Saw " << arguments.size() << " arguments" << std::endl;
 
-    std::cout << "Unmatched options: ";
+    //std::cout << "Unmatched options: ";
     for (const auto& option: result.unmatched())
     {
-      std::cout << "'" << option << "' ";
+      //std::cout << "'" << option << "' ";
     }
-    std::cout << std::endl;
+    //std::cout << std::endl;
   }
   catch (const cxxopts::exceptions::exception& e)
   {
-    std::cout << "error parsing options: " << e.what() << std::endl;
+    //std::cout << "error parsing options: " << e.what() << std::endl;
     return false;
   }
 

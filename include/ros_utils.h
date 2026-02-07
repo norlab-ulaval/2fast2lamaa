@@ -159,11 +159,11 @@ inline std::vector<std::pair<int, int>> getPointFields(const std::vector<sensor_
     }
     if(need_time&&(output[PointFieldTypes::TIME].first == -1))
     {
-        std::cout << "The point cloud does not seem to contain timestamp information (field 'time', 'ts', or 'point_time_offset'" << std::endl;
+        //std::cout << "The point cloud does not seem to contain timestamp information (field 'time', 'ts', or 'point_time_offset'" << std::endl;
     }
     if((output[PointFieldTypes::X].first == -1)||(output[PointFieldTypes::Y].first == -1)||(output[PointFieldTypes::Z].first == -1))
     {
-        std::cout << "The point cloud seems to miss at least one component (x, y, or z)" << std::endl;
+        //std::cout << "The point cloud seems to miss at least one component (x, y, or z)" << std::endl;
     }
     return output;
 }
@@ -394,7 +394,7 @@ inline std::tuple<std::vector<PointTemplated<T> >, bool, bool, bool> pointCloud2
             }
             else
             {
-                std::cout << "The channel field is of unknown type" << std::endl;
+                //std::cout << "The channel field is of unknown type" << std::endl;
             }
         }
         // WARNING, CAN BE MAD FASTER BUY DOING A LOOKUP TABLE INSTEAD OF A SET
@@ -464,7 +464,7 @@ inline std::tuple<std::vector<PointTemplated<T> >, bool, bool, bool> pointCloud2
             }
             else
             {
-                std::cout << "The time field is not of type float32 or float64 or unit32" << std::endl;
+                //std::cout << "The time field is not of type float32 or float64 or unit32" << std::endl;
                 pt.t = rclcpp::Time(msg->header.stamp).seconds();
             }
         }

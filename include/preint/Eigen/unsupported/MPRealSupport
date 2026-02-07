@@ -52,7 +52,7 @@ int main()
 
   // Solve Ax=b using LU
   VectorXmp x = A.lu().solve(b);
-  std::cout << "relative error: " << (A*x - b).norm() / b.norm() << std::endl;
+  //std::cout << "relative error: " << (A*x - b).norm() / b.norm() << std::endl;
   return 0;
 }
 \endcode

@@ -282,7 +282,7 @@ LevenbergMarquardt<FunctorType>::minimize(FVectorType  &x)
       return status;
     }
     do {
-//       std::cout << " uv " << x.transpose() << "\n";
+//       //std::cout << " uv " << x.transpose() << "\n";
         status = minimizeOneStep(x);
     } while (status==LevenbergMarquardtSpace::Running);
      m_isInitialized = true;

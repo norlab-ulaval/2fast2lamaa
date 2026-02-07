@@ -188,7 +188,7 @@ class GpMapNode: public rclcpp::Node
             {
                 using_submaps = (submap_length > 0.0);
             }
-            std::cout << "\n\n[GP MAP NODE] Using submaps: " << (using_submaps ? "true" : "false") << std::endl;
+            //std::cout << "\n\n[GP MAP NODE] Using submaps: " << (using_submaps ? "true" : "false") << std::endl;
             map_ = std::make_shared<SubmapManager>(options, localization_, using_submaps, submap_length, submap_overlap, map_path, reverse_path);
 
         }
@@ -701,16 +701,16 @@ int main(int argc, char **argv)
     context->add_on_shutdown_callback(
         [weak_node]() {
             if (auto n = weak_node.lock()) {
-                std::cout << "[gp_map] Received a shut down call" << std::endl;
+                //std::cout << "[gp_map] Received a shut down call" << std::endl;
                 n->shutdown();
-                std::cout << "[gp_map] Shutdown save completed" << std::endl;
+                //std::cout << "[gp_map] Shutdown save completed" << std::endl;
             }
         });
 
     try {
         rclcpp::spin(node);
     } catch (const std::exception & e) {
-        std::cout << "Exception: " << e.what();
+        //std::cout << "Exception: " << e.what();
     }
     
     rclcpp::shutdown();

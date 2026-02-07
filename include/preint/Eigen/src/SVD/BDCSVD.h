@@ -238,7 +238,7 @@ template<typename MatrixType>
 BDCSVD<MatrixType>& BDCSVD<MatrixType>::compute(const MatrixType& matrix, unsigned int computationOptions) 
 {
 #ifdef EIGEN_BDCSVD_DEBUG_VERBOSE
-  std::cout << "\n\n\n======================================================================================================================\n\n\n";
+  //std::cout << "\n\n\n======================================================================================================================\n\n\n";
 #endif
   allocate(matrix.rows(), matrix.cols(), computationOptions);
   using std::abs;
@@ -296,8 +296,8 @@ BDCSVD<MatrixType>& BDCSVD<MatrixType>::compute(const MatrixType& matrix, unsign
   }
 
 #ifdef EIGEN_BDCSVD_DEBUG_VERBOSE
-//   std::cout << "m_naiveU\n" << m_naiveU << "\n\n";
-//   std::cout << "m_naiveV\n" << m_naiveV << "\n\n";
+//   //std::cout << "m_naiveU\n" << m_naiveU << "\n\n";
+//   //std::cout << "m_naiveV\n" << m_naiveV << "\n\n";
 #endif
   if(m_isTranspose) copyUV(bid.householderV(), bid.householderU(), m_naiveV, m_naiveU);
   else              copyUV(bid.householderU(), bid.householderV(), m_naiveU, m_naiveV);
@@ -518,11 +518,11 @@ void BDCSVD<MatrixType>::divide (Index firstCol, Index lastCol, Index firstRowW,
   deflation(firstCol, lastCol, k, firstRowW, firstColW, shift);
 #ifdef EIGEN_BDCSVD_DEBUG_VERBOSE
   ArrayXr tmp2 = (m_computed.block(firstCol+shift, firstCol+shift, n, n)).jacobiSvd().singularValues();
-  std::cout << "\n\nj1 = " << tmp1.transpose().format(bdcsvdfmt) << "\n";
-  std::cout << "j2 = " << tmp2.transpose().format(bdcsvdfmt) << "\n\n";
-  std::cout << "err:      " << ((tmp1-tmp2).abs()>1e-12*tmp2.abs()).transpose() << "\n";
+  //std::cout << "\n\nj1 = " << tmp1.transpose().format(bdcsvdfmt) << "\n";
+  //std::cout << "j2 = " << tmp2.transpose().format(bdcsvdfmt) << "\n\n";
+  //std::cout << "err:      " << ((tmp1-tmp2).abs()>1e-12*tmp2.abs()).transpose() << "\n";
   static int count = 0;
-  std::cout << "# " << ++count << "\n\n";
+  //std::cout << "# " << ++count << "\n\n";
   assert((tmp1-tmp2).matrix().norm() < 1e-14*tmp2.matrix().norm());
 //   assert(count<681);
 //   assert(((tmp1-tmp2).abs()<1e-13*tmp2.abs()).all());
@@ -584,7 +584,7 @@ void BDCSVD<MatrixType>::computeSVDofM(Index firstCol, Index n, MatrixXr& U, Vec
 
 #ifdef EIGEN_BDCSVD_DEBUG_VERBOSE
   if (col0.hasNaN() || diag.hasNaN())
-    std::cout << "\n\nHAS NAN\n\n";
+    //std::cout << "\n\nHAS NAN\n\n";
 #endif
   
   // Many singular values might have been deflated, the zero ones have been moved to the end,
@@ -603,28 +603,28 @@ void BDCSVD<MatrixType>::computeSVDofM(Index firstCol, Index n, MatrixXr& U, Vec
   Map<ArrayXr> zhat(m_workspace.data()+3*n, n);
 
 #ifdef EIGEN_BDCSVD_DEBUG_VERBOSE
-  std::cout << "computeSVDofM using:\n";
-  std::cout << "  z: " << col0.transpose() << "\n";
-  std::cout << "  d: " << diag.transpose() << "\n";
+  //std::cout << "computeSVDofM using:\n";
+  //std::cout << "  z: " << col0.transpose() << "\n";
+  //std::cout << "  d: " << diag.transpose() << "\n";
 #endif
   
   // Compute singVals, shifts, and mus
   computeSingVals(col0, diag, perm, singVals, shifts, mus);
   
 #ifdef EIGEN_BDCSVD_DEBUG_VERBOSE
-  std::cout << "  j:        " << (m_computed.block(firstCol, firstCol, n, n)).jacobiSvd().singularValues().transpose().reverse() << "\n\n";
-  std::cout << "  sing-val: " << singVals.transpose() << "\n";
-  std::cout << "  mu:       " << mus.transpose() << "\n";
-  std::cout << "  shift:    " << shifts.transpose() << "\n";
+  //std::cout << "  j:        " << (m_computed.block(firstCol, firstCol, n, n)).jacobiSvd().singularValues().transpose().reverse() << "\n\n";
+  //std::cout << "  sing-val: " << singVals.transpose() << "\n";
+  //std::cout << "  mu:       " << mus.transpose() << "\n";
+  //std::cout << "  shift:    " << shifts.transpose() << "\n";
   
   {
     Index actual_n = n;
     while(actual_n>1 && abs(col0(actual_n-1))<considerZero) --actual_n;
-    std::cout << "\n\n    mus:    " << mus.head(actual_n).transpose() << "\n\n";
-    std::cout << "    check1 (expect0) : " << ((singVals.array()-(shifts+mus)) / singVals.array()).head(actual_n).transpose() << "\n\n";
-    std::cout << "    check2 (>0)      : " << ((singVals.array()-diag) / singVals.array()).head(actual_n).transpose() << "\n\n";
-    std::cout << "    check3 (>0)      : " << ((diag.segment(1,actual_n-1)-singVals.head(actual_n-1).array()) / singVals.head(actual_n-1).array()).transpose() << "\n\n\n";
-    std::cout << "    check4 (>0)      : " << ((singVals.segment(1,actual_n-1)-singVals.head(actual_n-1))).transpose() << "\n\n\n";
+    //std::cout << "\n\n    mus:    " << mus.head(actual_n).transpose() << "\n\n";
+    //std::cout << "    check1 (expect0) : " << ((singVals.array()-(shifts+mus)) / singVals.array()).head(actual_n).transpose() << "\n\n";
+    //std::cout << "    check2 (>0)      : " << ((singVals.array()-diag) / singVals.array()).head(actual_n).transpose() << "\n\n";
+    //std::cout << "    check3 (>0)      : " << ((diag.segment(1,actual_n-1)-singVals.head(actual_n-1).array()) / singVals.head(actual_n-1).array()).transpose() << "\n\n\n";
+    //std::cout << "    check4 (>0)      : " << ((singVals.segment(1,actual_n-1)-singVals.head(actual_n-1))).transpose() << "\n\n\n";
   }
 #endif
   
@@ -637,7 +637,7 @@ void BDCSVD<MatrixType>::computeSVDofM(Index firstCol, Index n, MatrixXr& U, Vec
   // Compute zhat
   perturbCol0(col0, diag, perm, singVals, shifts, mus, zhat);
 #ifdef  EIGEN_BDCSVD_DEBUG_VERBOSE
-  std::cout << "  zhat: " << zhat.transpose() << "\n";
+  //std::cout << "  zhat: " << zhat.transpose() << "\n";
 #endif
   
 #ifdef EIGEN_BDCSVD_SANITY_CHECKS
@@ -647,8 +647,8 @@ void BDCSVD<MatrixType>::computeSVDofM(Index firstCol, Index n, MatrixXr& U, Vec
   computeSingVecs(zhat, diag, perm, singVals, shifts, mus, U, V);
   
 #ifdef  EIGEN_BDCSVD_DEBUG_VERBOSE
-  std::cout << "U^T U: " << (U.transpose() * U - MatrixXr(MatrixXr::Identity(U.cols(),U.cols()))).norm() << "\n";
-  std::cout << "V^T V: " << (V.transpose() * V - MatrixXr(MatrixXr::Identity(V.cols(),V.cols()))).norm() << "\n";
+  //std::cout << "U^T U: " << (U.transpose() * U - MatrixXr(MatrixXr::Identity(U.cols(),U.cols()))).norm() << "\n";
+  //std::cout << "V^T V: " << (V.transpose() * V - MatrixXr(MatrixXr::Identity(V.cols(),V.cols()))).norm() << "\n";
 #endif
   
 #ifdef EIGEN_BDCSVD_SANITY_CHECKS
@@ -682,9 +682,9 @@ void BDCSVD<MatrixType>::computeSVDofM(Index firstCol, Index n, MatrixXr& U, Vec
   
 #ifdef EIGEN_BDCSVD_DEBUG_VERBOSE
   JacobiSVD<MatrixXr> jsvd(m_computed.block(firstCol, firstCol, n, n) );
-  std::cout << "  * j:        " << jsvd.singularValues().transpose() << "\n\n";
-  std::cout << "  * sing-val: " << singVals.transpose() << "\n";
-//   std::cout << "  * err:      " << ((jsvd.singularValues()-singVals)>1e-13*singVals.norm()).transpose() << "\n";
+  //std::cout << "  * j:        " << jsvd.singularValues().transpose() << "\n\n";
+  //std::cout << "  * sing-val: " << singVals.transpose() << "\n";
+//   //std::cout << "  * err:      " << ((jsvd.singularValues()-singVals)>1e-13*singVals.norm()).transpose() << "\n";
 #endif
 }
 
@@ -749,9 +749,9 @@ void BDCSVD<MatrixType>::computeSingVals(const ArrayRef& col0, const ArrayRef& d
     RealScalar mid = left + (right-left) / Literal(2);
     RealScalar fMid = secularEq(mid, col0, diag, perm, diag, Literal(0));
 #ifdef EIGEN_BDCSVD_DEBUG_VERBOSE
-    std::cout << right-left << "\n";
-    std::cout << "fMid = " << fMid << " " << secularEq(mid-left, col0, diag, perm, diag-left, left) << " " << secularEq(mid-right, col0, diag, perm, diag-right, right)   << "\n";
-    std::cout << "     = " << secularEq(0.1*(left+right), col0, diag, perm, diag, 0)
+    //std::cout << right-left << "\n";
+    //std::cout << "fMid = " << fMid << " " << secularEq(mid-left, col0, diag, perm, diag-left, left) << " " << secularEq(mid-right, col0, diag, perm, diag-right, right)   << "\n";
+    //std::cout << "     = " << secularEq(0.1*(left+right), col0, diag, perm, diag, 0)
               << " "       << secularEq(0.2*(left+right), col0, diag, perm, diag, 0)
               << " "       << secularEq(0.3*(left+right), col0, diag, perm, diag, 0)
               << " "       << secularEq(0.4*(left+right), col0, diag, perm, diag, 0)
@@ -835,7 +835,7 @@ void BDCSVD<MatrixType>::computeSingVals(const ArrayRef& col0, const ArrayRef& d
     if (useBisection)
     {
 #ifdef  EIGEN_BDCSVD_DEBUG_VERBOSE
-      std::cout << "useBisection for k = " << k << ", actual_n = " << actual_n << "\n";
+      //std::cout << "useBisection for k = " << k << ", actual_n = " << actual_n << "\n";
 #endif
       RealScalar leftShifted, rightShifted;
       if (shift == left)
@@ -870,8 +870,8 @@ void BDCSVD<MatrixType>::computeSingVals(const ArrayRef& col0, const ArrayRef& d
 #ifdef  EIGEN_BDCSVD_DEBUG_VERBOSE
       if(!(fLeft * fRight<0))
       {
-        std::cout << "fLeft: " << leftShifted << " - " << diagShifted.head(10).transpose()  << "\n ; " << bool(left==shift) << " " << (left-shift) << "\n";
-        std::cout << k << " : " <<  fLeft << " * " << fRight << " == " << fLeft * fRight << "  ;  " << left << " - " << right << " -> " <<  leftShifted << " " << rightShifted << "   shift=" << shift << "\n";
+        //std::cout << "fLeft: " << leftShifted << " - " << diagShifted.head(10).transpose()  << "\n ; " << bool(left==shift) << " " << (left-shift) << "\n";
+        //std::cout << k << " : " <<  fLeft << " * " << fRight << " == " << fLeft * fRight << "  ;  " << left << " - " << right << " -> " <<  leftShifted << " " << rightShifted << "   shift=" << shift << "\n";
       }
 #endif
       eigen_internal_assert(fLeft * fRight < Literal(0));
@@ -956,13 +956,13 @@ void BDCSVD<MatrixType>::perturbCol0
           prod *= ((singVals(j)+dk) / ((diag(i)+dk))) * ((mus(j)+(shifts(j)-dk)) / ((diag(i)-dk)));
 #ifdef EIGEN_BDCSVD_DEBUG_VERBOSE
           if(i!=k && numext::abs(((singVals(j)+dk)*(mus(j)+(shifts(j)-dk)))/((diag(i)+dk)*(diag(i)-dk)) - 1) > 0.9 )
-            std::cout << "     " << ((singVals(j)+dk)*(mus(j)+(shifts(j)-dk)))/((diag(i)+dk)*(diag(i)-dk)) << " == (" << (singVals(j)+dk) << " * " << (mus(j)+(shifts(j)-dk))
+            //std::cout << "     " << ((singVals(j)+dk)*(mus(j)+(shifts(j)-dk)))/((diag(i)+dk)*(diag(i)-dk)) << " == (" << (singVals(j)+dk) << " * " << (mus(j)+(shifts(j)-dk))
                        << ") / (" << (diag(i)+dk) << " * " << (diag(i)-dk) << ")\n";
 #endif
         }
       }
 #ifdef EIGEN_BDCSVD_DEBUG_VERBOSE
-      std::cout << "zhat(" << k << ") =  sqrt( " << prod << ")  ;  " << (singVals(last) + dk) << " * " << mus(last) + shifts(last) << " - " << dk << "\n";
+      //std::cout << "zhat(" << k << ") =  sqrt( " << prod << ")  ;  " << (singVals(last) + dk) << " * " << mus(last) + shifts(last) << " - " << dk << "\n";
 #endif
       RealScalar tmp = sqrt(prod);
       zhat(k) = col0(k) > Literal(0) ? RealScalar(tmp) : RealScalar(-tmp);
@@ -1057,12 +1057,12 @@ void BDCSVD<MatrixType>::deflation44(Index firstColu , Index firstColm, Index fi
   RealScalar s = m_computed(firstColm+j, firstColm);
   RealScalar r = sqrt(numext::abs2(c) + numext::abs2(s));
 #ifdef  EIGEN_BDCSVD_DEBUG_VERBOSE
-  std::cout << "deflation 4.4: " << i << "," << j << " -> " << c << " " << s << " " << r << " ; "
+  //std::cout << "deflation 4.4: " << i << "," << j << " -> " << c << " " << s << " " << r << " ; "
     << m_computed(firstColm + i-1, firstColm)  << " "
     << m_computed(firstColm + i, firstColm)  << " "
     << m_computed(firstColm + i+1, firstColm) << " "
     << m_computed(firstColm + i+2, firstColm) << "\n";
-  std::cout << m_computed(firstColm + i-1, firstColm + i-1)  << " "
+  //std::cout << m_computed(firstColm + i-1, firstColm + i-1)  << " "
     << m_computed(firstColm + i, firstColm+i)  << " "
     << m_computed(firstColm + i+1, firstColm+i+1) << " "
     << m_computed(firstColm + i+2, firstColm+i+2) << "\n";
@@ -1109,14 +1109,14 @@ void BDCSVD<MatrixType>::deflation(Index firstCol, Index lastCol, Index k, Index
 #endif
 
 #ifdef  EIGEN_BDCSVD_DEBUG_VERBOSE  
-  std::cout << "\ndeflate:" << diag.head(k+1).transpose() << "  |  " << diag.segment(k+1,length-k-1).transpose() << "\n";
+  //std::cout << "\ndeflate:" << diag.head(k+1).transpose() << "  |  " << diag.segment(k+1,length-k-1).transpose() << "\n";
 #endif
   
   //condition 4.1
   if (diag(0) < epsilon_coarse)
   { 
 #ifdef  EIGEN_BDCSVD_DEBUG_VERBOSE
-    std::cout << "deflation 4.1, because " << diag(0) << " < " << epsilon_coarse << "\n";
+    //std::cout << "deflation 4.1, because " << diag(0) << " < " << epsilon_coarse << "\n";
 #endif
     diag(0) = epsilon_coarse;
   }
@@ -1126,7 +1126,7 @@ void BDCSVD<MatrixType>::deflation(Index firstCol, Index lastCol, Index k, Index
     if (abs(col0(i)) < epsilon_strict)
     {
 #ifdef  EIGEN_BDCSVD_DEBUG_VERBOSE
-      std::cout << "deflation 4.2, set z(" << i << ") to zero because " << abs(col0(i)) << " < " << epsilon_strict << "  (diag(" << i << ")=" << diag(i) << ")\n";
+      //std::cout << "deflation 4.2, set z(" << i << ") to zero because " << abs(col0(i)) << " < " << epsilon_strict << "  (diag(" << i << ")=" << diag(i) << ")\n";
 #endif
       col0(i) = Literal(0);
     }
@@ -1136,7 +1136,7 @@ void BDCSVD<MatrixType>::deflation(Index firstCol, Index lastCol, Index k, Index
     if (diag(i) < epsilon_coarse)
     {
 #ifdef  EIGEN_BDCSVD_DEBUG_VERBOSE
-      std::cout << "deflation 4.3, cancel z(" << i << ")=" << col0(i) << " because diag(" << i << ")=" << diag(i) << " < " << epsilon_coarse << "\n";
+      //std::cout << "deflation 4.3, cancel z(" << i << ")=" << col0(i) << " because diag(" << i << ")=" << diag(i) << " < " << epsilon_coarse << "\n";
 #endif
       deflation43(firstCol, shift, i, length);
     }
@@ -1147,7 +1147,7 @@ void BDCSVD<MatrixType>::deflation(Index firstCol, Index lastCol, Index k, Index
   assert(m_computed.allFinite());
 #endif
 #ifdef EIGEN_BDCSVD_DEBUG_VERBOSE
-  std::cout << "to be sorted: " << diag.transpose() << "\n\n";
+  //std::cout << "to be sorted: " << diag.transpose() << "\n\n";
 #endif
   {
     // Check for total deflation
@@ -1226,8 +1226,8 @@ void BDCSVD<MatrixType>::deflation(Index firstCol, Index lastCol, Index k, Index
     }
   }
 #ifdef EIGEN_BDCSVD_DEBUG_VERBOSE
-  std::cout << "sorted: " << diag.transpose().format(bdcsvdfmt) << "\n";
-  std::cout << "      : " << col0.transpose() << "\n\n";
+  //std::cout << "sorted: " << diag.transpose().format(bdcsvdfmt) << "\n";
+  //std::cout << "      : " << col0.transpose() << "\n\n";
 #endif
     
   //condition 4.4
@@ -1238,7 +1238,7 @@ void BDCSVD<MatrixType>::deflation(Index firstCol, Index lastCol, Index k, Index
        if( (diag(i) - diag(i-1)) < NumTraits<RealScalar>::epsilon()*maxDiag )
       {
 #ifdef EIGEN_BDCSVD_DEBUG_VERBOSE
-        std::cout << "deflation 4.4 with i = " << i << " because " << (diag(i) - diag(i-1)) << " < " << NumTraits<RealScalar>::epsilon()*diag(i) << "\n";
+        //std::cout << "deflation 4.4 with i = " << i << " because " << (diag(i) - diag(i-1)) << " < " << NumTraits<RealScalar>::epsilon()*diag(i) << "\n";
 #endif
         eigen_internal_assert(abs(diag(i) - diag(i-1))<epsilon_coarse && " diagonal entries are not properly sorted");
         deflation44(firstCol, firstCol + shift, firstRowW, firstColW, i-1, i, length);

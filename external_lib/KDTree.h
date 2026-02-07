@@ -46,7 +46,7 @@
  * auto lazyMonsterVictims = tree.searchKnn(lazyMonsterLocation, monsterHeads);
  * for (const auto& victim : lazyMonsterVictims)
  * {
- *     std::cout << victim.payload << " closest to lazy monster, with distance " << sqrt(victim.distance) << "!"
+ *     //std::cout << victim.payload << " closest to lazy monster, with distance " << sqrt(victim.distance) << "!"
  *               << std::endl;
  * }
  *
@@ -54,17 +54,17 @@
  * point_t stationaryMonsterLocation{{8, 8}}; // this monster doesn't move, so can only eat people that are close
  * const double neckLength = 6.0; // it can only reach within this range
  * auto potentialVictims = tree.searchBall(stationaryMonsterLocation, neckLength * neckLength); // metric is SquaredL2
- * std::cout << "Stationary monster can reach any of " << potentialVictims.size() << " people!" << std::endl;
+ * //std::cout << "Stationary monster can reach any of " << potentialVictims.size() << " people!" << std::endl;
  *
  * // hybrid KNN/ball search
  * auto actualVictims
  *     = tree.searchCapacityLimitedBall(stationaryMonsterLocation, neckLength * neckLength, monsterHeads);
- * std::cout << "The stationary monster will try to eat ";
+ * //std::cout << "The stationary monster will try to eat ";
  * for (const auto& victim : actualVictims)
  * {
- *     std::cout << victim.payload << " and ";
+ *     //std::cout << victim.payload << " and ";
  * }
- * std::cout << "nobody else." << std::endl;
+ * //std::cout << "nobody else." << std::endl;
  *
  * Output:
  *
