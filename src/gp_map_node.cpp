@@ -154,7 +154,7 @@ class GpMapNode: public rclcpp::Node
             loss_scale_ = readFieldDouble(this, "loss_function_scale", 0.5);
             
             // Write the first line of the trajectory file
-            traj_path_ = map_path + "/trajectory.csv";
+            traj_path_ = map_path + "/trajectory.txt";
             createTrajectoryFile(traj_path_);
 
 
@@ -184,11 +184,12 @@ class GpMapNode: public rclcpp::Node
             // Create the map manager
             double submap_length = readFieldDouble(this, "submap_length", -1.0);
             double submap_overlap = readFieldDouble(this, "submap_overlap", 0.1);
-            if(!localization_)
+            if(!localization_) 
             {
+                // TODO this should be executed even when only localizing
                 using_submaps = (submap_length > 0.0);
             }
-            //std::cout << "\n\n[GP MAP NODE] Using submaps: " << (using_submaps ? "true" : "false") << std::endl;
+            RCLCPP_INFO_STREAM(this->get_logger(), "Using submaps: " << (using_submaps ? "true" : "false") << " Submap length: " << submap_length);
             map_ = std::make_shared<SubmapManager>(options, localization_, using_submaps, submap_length, submap_overlap, map_path, reverse_path);
 
         }
@@ -644,8 +645,8 @@ class GpMapNode: public rclcpp::Node
             std::ofstream trajectory_file(path, std::ios::out | std::ios::trunc);
             if (trajectory_file.is_open())
             {
-                trajectory_file << "timestamp, x, y, z, r0, r1, r2" 
-                                << std::endl; // Header line
+                // trajectory_file << "timestamp, x, y, z, r0, r1, r2" 
+                //                 << std::endl; // Header line
                 trajectory_file.close();
                 RCLCPP_INFO(this->get_logger(), "Created trajectory file: %s", path.c_str());
             }
@@ -663,14 +664,15 @@ class GpMapNode: public rclcpp::Node
             if (trajectory_file.is_open())
             {
                 Mat3 rot_mat = pose.block<3,3>(0,0);
-                Vec3 rot_vec = logMap(rot_mat);
-                trajectory_file << std::fixed << time.nanoseconds() << ", "
-                                << pose(0,3) << ", "
-                                << pose(1,3) << ", "
-                                << pose(2,3) << ", "
-                                << rot_vec(0) << ", "
-                                << rot_vec(1) << ", "
-                                << rot_vec(2)
+                Eigen::Quaterniond q(rot_mat);
+                trajectory_file << std::fixed << time.nanoseconds() << " "
+                                << pose(0,3) << " "
+                                << pose(1,3) << " "
+                                << pose(2,3) << " "
+                                << q.x() << " "
+                                << q.y() << " "
+                                << q.z() << " "
+                                << q.w()
                                 << std::endl; // Write the current pose to the trajectory file
                 trajectory_file.close();
                 RCLCPP_INFO(this->get_logger(), "Updated trajectory file: %s", path.c_str());
