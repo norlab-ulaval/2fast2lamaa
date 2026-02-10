@@ -23,6 +23,7 @@
 #include <sys/stat.h>
 
 #include <fstream>
+#include <iomanip>
 
 
 bool folderExists(const std::string& folderPath) {
@@ -152,7 +153,7 @@ class GpMapNode: public rclcpp::Node
             pc_type_internal_ = readFieldBool(this, "point_cloud_internal_type", false);
 
             loss_scale_ = readFieldDouble(this, "loss_function_scale", 0.5);
-            
+
             // Write the first line of the trajectory file
             traj_path_ = map_path + "/trajectory.txt";
             createTrajectoryFile(traj_path_);
@@ -184,7 +185,7 @@ class GpMapNode: public rclcpp::Node
             // Create the map manager
             double submap_length = readFieldDouble(this, "submap_length", -1.0);
             double submap_overlap = readFieldDouble(this, "submap_overlap", 0.1);
-            if(!localization_) 
+            if(!localization_)
             {
                 // TODO this should be executed even when only localizing
                 using_submaps = (submap_length > 0.0);
@@ -198,7 +199,7 @@ class GpMapNode: public rclcpp::Node
         {
             shutdown();
         }
-        
+
         void shutdown()
         {
             // Ensure this function is idempotent
@@ -207,7 +208,7 @@ class GpMapNode: public rclcpp::Node
             }
 
             running_ = false;
-            
+
             // Join the thread if it's joinable
             if (map_publish_thread_ && map_publish_thread_->joinable()) {
                 map_publish_thread_->join();
@@ -268,7 +269,7 @@ class GpMapNode: public rclcpp::Node
 
 
         Mat4 current_pose_ = Mat4::Identity();
-        
+
         Mat4 last_input_pose_ = Mat4::Identity();
         Mat4 init_guess_ = Mat4::Identity();
         bool first_ = true;
@@ -532,7 +533,7 @@ class GpMapNode: public rclcpp::Node
             Mat4 delta_trans = last_input_pose_.inverse() * trans;
             init_guess_ = init_guess_*delta_trans;
         }
-        
+
 
         bool needMapUpdate(const rclcpp::Time& time, const Mat4& trans)
         {
@@ -560,7 +561,7 @@ class GpMapNode: public rclcpp::Node
                 {
                     need_update = true;
                 }
-            }   
+            }
             if(need_update)
             {
                 key_framing_time_cumulated_ = 0.0;
@@ -595,7 +596,7 @@ class GpMapNode: public rclcpp::Node
         {
             updateMap(msg, current_pose_);
         }
-        
+
 
         void mapPublishThread()
         {
@@ -645,7 +646,7 @@ class GpMapNode: public rclcpp::Node
             std::ofstream trajectory_file(path, std::ios::out | std::ios::trunc);
             if (trajectory_file.is_open())
             {
-                // trajectory_file << "timestamp, x, y, z, r0, r1, r2" 
+                // trajectory_file << "timestamp, x, y, z, r0, r1, r2"
                 //                 << std::endl; // Header line
                 trajectory_file.close();
                 RCLCPP_INFO(this->get_logger(), "Created trajectory file: %s", path.c_str());
@@ -659,13 +660,18 @@ class GpMapNode: public rclcpp::Node
 
         void logPoseToFile(const std::string& path, const Mat4 & pose, const rclcpp::Time & time)
         {
+            auto ns_epoch = time.nanoseconds();
+            auto seconds = ns_epoch / 1000000000LL;
+            auto nanoseconds = ns_epoch % 1000000000LL;
+
             // Log the trajectory estimate
             std::ofstream trajectory_file(path, std::ios::out | std::ios::app);
             if (trajectory_file.is_open())
             {
                 Mat3 rot_mat = pose.block<3,3>(0,0);
                 Eigen::Quaterniond q(rot_mat);
-                trajectory_file << std::fixed << time.nanoseconds() << " "
+                trajectory_file << std::fixed << seconds << "."
+                                << std::setfill('0') << std::setw(9) << nanoseconds << " "
                                 << pose(0,3) << " "
                                 << pose(1,3) << " "
                                 << pose(2,3) << " "
@@ -693,7 +699,7 @@ int main(int argc, char **argv)
 {
     rclcpp::init(argc, argv);
     auto node = std::make_shared<GpMapNode>();
-    
+
     // Register shutdown callback on the global context
     auto context = rclcpp::contexts::get_global_default_context();
 
@@ -714,10 +720,7 @@ int main(int argc, char **argv)
     } catch (const std::exception & e) {
         //std::cout << "Exception: " << e.what();
     }
-    
+
     rclcpp::shutdown();
     return 0;
 }
-
-
-
