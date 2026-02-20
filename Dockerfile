@@ -52,7 +52,7 @@ RUN source /opt/ros/humble/setup.bash \
     && colcon build --symlink-install
 
 RUN apt update && apt install -y ros-humble-rosbag2-storage-mcap python3-pip libgl1-mesa-glx
-RUN cd /ros2_ws/src/2fast2lamaa && pip3 install -r requirements.txt
+RUN cd /ros2_ws/src/2fast2lamaa && source /opt/ros/humble/setup.bash && pip3 install -r requirements.txt
 
 STOPSIGNAL SIGINT
 # add additional commands here
