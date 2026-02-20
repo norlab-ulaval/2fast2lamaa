@@ -27,6 +27,8 @@ find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(Ceres 2.2 REQUIRED)
 find_package(message_filters REQUIRED)
+find_package(rosbag2_cpp REQUIRED)
+find_package(rosbag2_storage REQUIRED)
 
 
 find_package(rosidl_default_generators REQUIRED)
@@ -74,6 +76,7 @@ add_executable(map_cleaner src/map_cleaning.cpp)
 add_executable(offline_loop_closure src/offline_loop_closure.cpp)
 
 add_executable(lidar_2d_conversion src/2d_lidar_conversion_node.cpp)
+add_executable(offline_processor src/offline_processor_node.cpp)
 
 rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_cpp")
 
@@ -97,6 +100,10 @@ target_link_libraries(offline_loop_closure
 )
 target_link_libraries(lidar_2d_conversion
   Eigen3::Eigen
+)
+target_link_libraries(offline_processor
+  "${cpp_typesupport_target}"
+  lice
 )
 
 
@@ -140,6 +147,19 @@ ament_target_dependencies(lidar_2d_conversion
   rclcpp
   sensor_msgs
   Eigen3
+)
+
+ament_target_dependencies(offline_processor
+  rclcpp
+  sensor_msgs
+  geometry_msgs
+  nav_msgs
+  message_filters
+  std_msgs
+  tf2
+  tf2_ros
+  rosbag2_cpp
+  rosbag2_storage
 ) 
 
 include_directories(
@@ -157,7 +177,7 @@ install(
 
 install(TARGETS
   lice
-  lidar_scan_odometry gp_map map_cleaner offline_loop_closure lidar_2d_conversion
+  lidar_scan_odometry gp_map map_cleaner offline_loop_closure lidar_2d_conversion offline_processor
   DESTINATION lib/${PROJECT_NAME})
 
 
