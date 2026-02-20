@@ -784,4 +784,4 @@ if __name__ == "__main__":
     else:
         path = "vbr_output/colosseo_train0/raw_output"
 
-    performLoopClosure(path, visualize=True)
+    performLoopClosure(path, visualize=False)
