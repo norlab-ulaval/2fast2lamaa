@@ -103,12 +103,12 @@ class LidarOdometryNode : public rclcpp::Node, public LidarOdometryPublisher
                 pc_dense_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/lidar_scan_undistorted_dense", 10);
             }
 
-            acc_sub_ = this->create_subscription<sensor_msgs::msg::Imu>("/imu/acc", 100, std::bind(&LidarOdometryNode::accCallback, this, std::placeholders::_1));
-            gyr_sub_ = this->create_subscription<sensor_msgs::msg::Imu>("/imu/gyr", 100, std::bind(&LidarOdometryNode::gyrCallback, this, std::placeholders::_1));
+            acc_sub_ = this->create_subscription<sensor_msgs::msg::Imu>("/imu/acc", 1000000, std::bind(&LidarOdometryNode::accCallback, this, std::placeholders::_1));
+            gyr_sub_ = this->create_subscription<sensor_msgs::msg::Imu>("/imu/gyr", 1000000, std::bind(&LidarOdometryNode::gyrCallback, this, std::placeholders::_1));
 
-            lidar_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>("/lidar_raw_points", 1, std::bind(&LidarOdometryNode::pcCallback, this, std::placeholders::_1));
+            lidar_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>("/lidar_raw_points", 50000, std::bind(&LidarOdometryNode::pcCallback, this, std::placeholders::_1));
 
-            odom_map_correction_sub_ = this->create_subscription<geometry_msgs::msg::TransformStamped>("/odom_map_correction", 10, std::bind(&LidarOdometryNode::odomMapCorrectionCallback, this, std::placeholders::_1));
+            odom_map_correction_sub_ = this->create_subscription<geometry_msgs::msg::TransformStamped>("/odom_map_correction", 100000, std::bind(&LidarOdometryNode::odomMapCorrectionCallback, this, std::placeholders::_1));
 
             rclcpp::node_interfaces::NodeTopicsInterface::SharedPtr node_topics_handle = this->get_node_topics_interface();
             br_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this, tf2_ros::DynamicBroadcasterQoS(), rclcpp::PublisherOptions());
@@ -330,7 +330,7 @@ class LidarOdometryNode : public rclcpp::Node, public LidarOdometryPublisher
             //std::cout << "At " << std::fixed << header_time.nanoseconds() << std::endl;
             //std::cout << std::fixed << "First point time: " << incoming_pts_ptr->at(0).t << ", last point time: " << incoming_pts_ptr->at(incoming_pts_ptr->size()-1).t << std::endl;
 
-            
+
             // Scale the point cloud if needed
             if(pc_scale_ != 1.0)
             {
@@ -412,4 +412,3 @@ int main(int argc, char **argv)
     rclcpp::shutdown();
     return 0;
 }
-
