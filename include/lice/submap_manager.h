@@ -6,11 +6,18 @@
 #include <filesystem>
 #include <thread>
 #include <fstream>
+#include <iomanip>
+#include <limits>
 #include "utils.h"
 
 
 const double kMinNodeDist = 1.0;
 const int kNumAdjacentNodesToCheck = 20;
+
+// Diagnostics for the localisation submap switching
+const int kSubmapStatusLogPeriod = 20;   // Log a compact status every N registrations
+const int kSubmapStuckWarnAfter = 10;    // Warn once the closest node has not moved for N registrations
+const double kOffPathWarnDist = 10.0;    // Beyond this distance to the nearest node, the pose is off the mapped path
 
 
 class SubmapManager
@@ -123,22 +130,49 @@ class SubmapManager
                         map_ptr++;
                     }
 
+                    std::cout << "[submap_manager] Found " << submap_paths_.size() << " submap(s) in " << map_path_ << std::endl;
+                    for(size_t i = 0; i < submap_paths_.size(); i++)
+                    {
+                        std::cout << "[submap_manager]   submap " << i << ": " << submap_paths_[i] << std::endl;
+                    }
+                    std::cout << "[submap_manager] Read " << graph_nodes_.size() << " raw trajectory node(s)" << std::endl;
+
                     // Correct the map index at the overlaps
                     for(size_t i = 0; i < overlaps.size(); i++)
                     {
                         if(overlaps[i].first != std::numeric_limits<int64_t>::max())
                         {
+                            // The overlap timestamps must be known from the previous submap, otherwise
+                            // operator[] below would silently default-construct an index of 0.
+                            if(time_to_index.count(overlaps[i].first) == 0 || time_to_index.count(overlaps[i].second) == 0)
+                            {
+                                std::cout << "[submap_manager] WARNING: overlap of submap " << i
+                                          << " references timestamps that are not in the trajectory ("
+                                          << overlaps[i].first << ", " << overlaps[i].second
+                                          << "); submap ownership near this boundary is unreliable." << std::endl;
+                            }
                             // Change the map index of the nodes in the first half of the overlap to the previous map index
                             int mid_index = (time_to_index[overlaps[i].first] + time_to_index[overlaps[i].second]) / 2;
+                            std::cout << "[submap_manager] Overlap of submap " << i << ": times ["
+                                      << overlaps[i].first << ", " << overlaps[i].second << "] -> raw nodes ["
+                                      << mid_index << ", " << time_to_index[overlaps[i].second]
+                                      << "] reassigned to submap " << i << std::endl;
                             for(int j = mid_index; j <= time_to_index[overlaps[i].second]; j++)
                             {
                                 graph_nodes_[j].second = i;
                             }
                         }
+                        else
+                        {
+                            std::cout << "[submap_manager] Submap " << i
+                                      << " has no overlap with the previous submap (no shared timestamps)."
+                                      << std::endl;
+                        }
 
                     }
 
                     // Prune the graph nodes that are too close to each other
+                    const size_t num_raw_nodes = graph_nodes_.size();
                     std::vector<std::pair<Vec3, int>> pruned_graph_nodes;
                     Vec3 last_node = graph_nodes_[0].first;
                     for(size_t i = 1; i < graph_nodes_.size(); i++)
@@ -153,6 +187,8 @@ class SubmapManager
 
                     num_submaps_ = submap_paths_.size();
 
+                    logGraphSummary(num_raw_nodes);
+
                     if(!reverse_path)
                     {
                         current_map_->loadMap(submap_paths_[0]);
@@ -165,6 +201,10 @@ class SubmapManager
                         current_map_id_ = num_submaps_ - 1;
                         current_node_id_ = graph_nodes_.size() - 1;
                     }
+                    std::cout << "[submap_manager] Starting at node " << current_node_id_
+                              << " on submap " << current_map_id_
+                              << " (reverse_path=" << (reverse_path_ ? "true" : "false")
+                              << ", lookahead=" << kNumAdjacentNodesToCheck << " nodes)" << std::endl;
 
                 }
                 else
@@ -192,6 +232,12 @@ class SubmapManager
                 Vec3 current_pos = updated_pose.block<3,1>(0,3);
                 int best_node_id = current_node_id_;
                 double best_dist = (current_pos - graph_nodes_[current_node_id_].first).norm();
+                if (current_node_id_ > 310 && current_node_id_ < 330 && register_call_count_ % 10 == 0) {
+                    std::cout << "[submap_manager] DEBUG_PULL: node=" << current_node_id_ 
+                              << " dist_to_curr=" << best_dist
+                              << " dist_to_321=" << (current_pos - graph_nodes_[321].first).norm()
+                              << " dist_to_322=" << (current_pos - graph_nodes_[322].first).norm() << std::endl;
+                }
                 // Check the next kNumAdjacentNodesToCheck nodes
                 int start = reverse_path_ ? std::max(0, current_node_id_ - kNumAdjacentNodesToCheck) : current_node_id_;
                 int end = reverse_path_ ? current_node_id_ : std::min((int)graph_nodes_.size(), current_node_id_ + kNumAdjacentNodesToCheck);
@@ -205,12 +251,42 @@ class SubmapManager
                     }
                 }
 
+                // If local tracking diverged, check if we jumped to another part of the mapped path
+                if(best_dist > kOffPathWarnDist)
+                {
+                    double global_dist = std::numeric_limits<double>::max();
+                    int global_node_id = -1;
+                    for(size_t i = 0; i < graph_nodes_.size(); i++)
+                    {
+                        double d = (current_pos - graph_nodes_[i].first).norm();
+                        if(d < global_dist)
+                        {
+                            global_dist = d;
+                            global_node_id = (int)i;
+                        }
+                    }
+                    if(global_dist <= kOffPathWarnDist)
+                    {
+                        best_node_id = global_node_id;
+                        best_dist = global_dist;
+                        std::cout << "[submap_manager] Recovered from tracking divergence: snapped from node "
+                                  << current_node_id_ << " to " << global_node_id << std::endl;
+                    }
+                }
+
+                logSwitchDiagnostics(current_pos, prior.block<3,1>(0,3), current_node_id_, best_node_id,
+                                     best_dist, start, end, current_time);
+
                 if(best_node_id != current_node_id_)
                 {
                     int new_map_id = graph_nodes_[best_node_id].second;
                     if(new_map_id != current_map_id_)
                     {
-                        //std::cout << "Switching from submap " << current_map_id_ << " to submap " << new_map_id << "\n\n\n\n\n" << std::endl;
+                        std::cout << "[submap_manager] SWITCHING from submap " << current_map_id_
+                                  << " to submap " << new_map_id
+                                  << " at node " << best_node_id
+                                  << " (dist to node " << std::fixed << std::setprecision(2) << best_dist << " m)"
+                                  << " -> loading " << submap_paths_[new_map_id] << std::endl;
                         current_map_ = std::make_shared<MapDistField>(options_);
                         current_map_->loadMap(submap_paths_[new_map_id]);
                         current_map_->set2D(is_2d_);
@@ -354,6 +430,230 @@ class SubmapManager
 
         int current_map_id_ = 0;
         int current_node_id_ = 0;
+
+        // Diagnostics for the localisation submap switching
+        std::vector<std::pair<int, int>> submap_node_ranges_;
+        int64_t register_call_count_ = 0;
+        int stuck_counter_ = 0;
+        bool logged_path_end_ = false;
+        Vec3 last_diag_pos_ = Vec3::Zero();
+        bool has_last_diag_pos_ = false;
+        double total_traveled_ = 0.0;
+        double traveled_since_advance_ = 0.0;
+        int64_t first_register_time_ = -1;
+
+        // Report which graph nodes own which submap. A submap with no node can never be switched to.
+        void logGraphSummary(const size_t num_raw_nodes)
+        {
+            submap_node_ranges_.assign(num_submaps_,
+                    {std::numeric_limits<int>::max(), std::numeric_limits<int>::min()});
+            std::vector<int> counts(num_submaps_, 0);
+            for(size_t i = 0; i < graph_nodes_.size(); i++)
+            {
+                const int id = graph_nodes_[i].second;
+                if(id >= 0 && id < num_submaps_)
+                {
+                    submap_node_ranges_[id].first = std::min(submap_node_ranges_[id].first, (int)i);
+                    submap_node_ranges_[id].second = std::max(submap_node_ranges_[id].second, (int)i);
+                    counts[id]++;
+                }
+            }
+
+            std::cout << "[submap_manager] Pruned graph: " << num_raw_nodes << " -> " << graph_nodes_.size()
+                      << " node(s) (min spacing " << kMinNodeDist << " m)" << std::endl;
+            for(int id = 0; id < num_submaps_; id++)
+            {
+                std::cout << "[submap_manager]   submap " << id << ": " << counts[id] << " node(s)";
+                if(counts[id] > 0)
+                {
+                    std::cout << ", node range [" << submap_node_ranges_[id].first << ", "
+                              << submap_node_ranges_[id].second << "]";
+                }
+                else
+                {
+                    std::cout << "   <-- WARNING: no graph node owns this submap, it can NEVER be selected";
+                }
+                std::cout << std::endl;
+            }
+
+            // The ownership transitions are exactly the points where a switch can occur
+            std::cout << "[submap_manager] Submap ownership along the path (submap@node):";
+            int prev_id = -1;
+            for(size_t i = 0; i < graph_nodes_.size(); i++)
+            {
+                if(graph_nodes_[i].second != prev_id)
+                {
+                    std::cout << " " << graph_nodes_[i].second << "@" << i;
+                    prev_id = graph_nodes_[i].second;
+                }
+            }
+            std::cout << std::endl;
+        }
+
+        // Explain, at every registration, why the current submap was or was not changed
+        void logSwitchDiagnostics(const Vec3& current_pos, const Vec3& prior_pos, const int prev_node_id,
+                                  const int best_node_id, const double best_dist, const int start, const int end,
+                                  const int64_t current_time)
+        {
+            register_call_count_++;
+
+            // Motion bookkeeping: how far the estimate moved, and how far it moved without the node index advancing
+            double step = 0.0;
+            if(has_last_diag_pos_)
+            {
+                step = (current_pos - last_diag_pos_).norm();
+            }
+            total_traveled_ += step;
+            if(best_node_id != prev_node_id)
+            {
+                traveled_since_advance_ = 0.0;
+            }
+            else
+            {
+                traveled_since_advance_ += step;
+            }
+            last_diag_pos_ = current_pos;
+            has_last_diag_pos_ = true;
+
+            // How much the registration moved the pose away from the prior (registration health)
+            const double registration_correction = (current_pos - prior_pos).norm();
+
+            if(first_register_time_ < 0)
+            {
+                first_register_time_ = current_time;
+            }
+            const double elapsed_s = double(current_time - first_register_time_) * 1e-9;
+
+            // Closest node inside the lookahead window that belongs to another submap
+            int foreign_node_id = -1;
+            int foreign_map_id = -1;
+            double foreign_dist = std::numeric_limits<double>::max();
+            for(int node_id = start; node_id < end; node_id++)
+            {
+                if(graph_nodes_[node_id].second != current_map_id_)
+                {
+                    const double d = (current_pos - graph_nodes_[node_id].first).norm();
+                    if(d < foreign_dist)
+                    {
+                        foreign_dist = d;
+                        foreign_node_id = node_id;
+                        foreign_map_id = graph_nodes_[node_id].second;
+                    }
+                }
+            }
+
+            if(best_node_id == prev_node_id)
+            {
+                stuck_counter_++;
+            }
+            else
+            {
+                stuck_counter_ = 0;
+            }
+
+            const bool near_boundary = (foreign_node_id >= 0);
+            const bool window_saturated = (end > start) && (best_node_id == end - 1);
+            const bool periodic = (register_call_count_ % kSubmapStatusLogPeriod == 0);
+            const bool stuck = (stuck_counter_ > 0) && (stuck_counter_ % kSubmapStuckWarnAfter == 0);
+
+            if(!near_boundary && !periodic && !stuck)
+            {
+                return;
+            }
+
+            // Unrestricted nearest node over the WHOLE graph. Comparing it against the windowed best is
+            // what separates "the estimate left the mapped path" from "the lookahead cannot reach far enough".
+            int global_node_id = -1;
+            int global_map_id = -1;
+            double global_dist = std::numeric_limits<double>::max();
+            for(size_t i = 0; i < graph_nodes_.size(); i++)
+            {
+                const double d = (current_pos - graph_nodes_[i].first).norm();
+                if(d < global_dist)
+                {
+                    global_dist = d;
+                    global_node_id = (int)i;
+                    global_map_id = graph_nodes_[i].second;
+                }
+            }
+
+            const std::streamsize prev_precision = std::cout.precision();
+            std::cout << std::fixed << std::setprecision(2);
+            std::cout << "[submap_manager] t=" << elapsed_s << "s node " << prev_node_id << "->" << best_node_id
+                      << " submap " << current_map_id_
+                      << " | d_node=" << best_dist << " m"
+                      << " | window [" << start << "," << end << ")";
+            if(near_boundary)
+            {
+                std::cout << " | closest submap " << foreign_map_id << " node is " << foreign_node_id
+                          << " at " << foreign_dist << " m (must be < " << best_dist << " m to switch)";
+            }
+            else
+            {
+                std::cout << " | window holds only submap " << current_map_id_ << " nodes";
+            }
+            std::cout << std::endl;
+
+            std::cout << "[submap_manager]   global nearest node " << global_node_id
+                      << " (submap " << global_map_id << ") at " << global_dist << " m"
+                      << " | windowed best node " << best_node_id << " at " << best_dist << " m"
+                      << " | travelled " << traveled_since_advance_ << " m since the node index last advanced"
+                      << " (total " << total_traveled_ << " m)"
+                      << " | registration moved the prior by " << registration_correction << " m"
+                      << std::endl;
+
+            // Mutually exclusive verdicts on why the node index is not reaching the next submap
+            if(global_dist > kOffPathWarnDist)
+            {
+                std::cout << "[submap_manager]   DIAGNOSIS: the nearest node of the ENTIRE map is " << global_dist
+                          << " m away (> " << kOffPathWarnDist << " m), so the estimate has LEFT the mapped path."
+                             " This is drift / registration failure, not a lookahead problem." << std::endl;
+            }
+            else if(global_node_id >= end)
+            {
+                std::cout << "[submap_manager]   DIAGNOSIS: the estimate is ON the mapped path (" << global_dist
+                          << " m from node " << global_node_id << ") but that node is BEYOND the lookahead window"
+                             " which ends at " << end << ". The tracker cannot jump " << (global_node_id - best_node_id)
+                          << " nodes, so the index is stuck behind the true position: the lookahead is too short."
+                          << std::endl;
+            }
+            else if(global_node_id < start)
+            {
+                std::cout << "[submap_manager]   DIAGNOSIS: the nearest node " << global_node_id
+                          << " is BEHIND the window start " << start
+                          << ". The forward-only search cannot go back, so the index overshot the true position."
+                          << std::endl;
+            }
+
+            if(stuck)
+            {
+                double span = 0.0;
+                for(int n = start; n + 1 < end; n++)
+                {
+                    span += (graph_nodes_[n+1].first - graph_nodes_[n].first).norm();
+                }
+                std::cout << "[submap_manager] WARNING: closest node stuck at " << best_node_id
+                          << " for " << stuck_counter_ << " registration(s) (d_node=" << best_dist
+                          << " m). The lookahead only reaches " << span
+                          << " m along the mapped path; if the estimate drifted off that path, or moved further"
+                             " than this, the node index can never advance and no submap switch can happen."
+                          << std::endl;
+            }
+            if(window_saturated && (stuck || periodic))
+            {
+                std::cout << "[submap_manager] WARNING: the best node is the last one of the "
+                          << kNumAdjacentNodesToCheck << "-node lookahead window; the window may be too short."
+                          << std::endl;
+            }
+            if(!logged_path_end_ && !reverse_path_ && end >= (int)graph_nodes_.size())
+            {
+                logged_path_end_ = true;
+                std::cout << "[submap_manager] Note: the lookahead reached the end of the graph ("
+                          << graph_nodes_.size() << " nodes)." << std::endl;
+            }
+            std::cout << std::setprecision(prev_precision);
+            std::cout.unsetf(std::ios_base::floatfield);
+        }
 
         void writeCurrentSubmap()
         {

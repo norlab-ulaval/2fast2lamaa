@@ -240,7 +240,7 @@ class LidarOdometryNode : public rclcpp::Node, public LidarOdometryPublisher
         void publishPc(const int64_t t, const std::vector<Pointd>& pc)
         {
             rclcpp::Time new_time(t);
-            RCLCPP_INFO(this->get_logger(), "Publishing point cloud with %zu points at time %f", pc.size(), new_time.seconds());
+            RCLCPP_DEBUG(this->get_logger(), "Publishing point cloud with %zu points at time %f", pc.size(), new_time.seconds());
             sensor_msgs::msg::PointCloud2 pc_msg = ptsVecToPointCloud2MsgInternal(pc, "lidar", new_time);
             mutex_pc_.lock();
             pc_pub_->publish(pc_msg);

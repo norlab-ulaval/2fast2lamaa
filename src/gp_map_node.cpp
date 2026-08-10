@@ -342,8 +342,8 @@ class GpMapNode: public rclcpp::Node
             DEBUG_query_time_sum_ += temp_time;
             map_mutex_.unlock();
             DEBUG_query_time_count_ += request->num_pts;
-            RCLCPP_INFO(this->get_logger(), "Average query time per point (API): %f", DEBUG_query_time_sum_/DEBUG_query_time_count_);
-            RCLCPP_INFO(this->get_logger(), "Query time (API) with %d points: %f ms", request->num_pts, temp_time);
+            RCLCPP_DEBUG(this->get_logger(), "Average query time per point (API): %f", DEBUG_query_time_sum_/DEBUG_query_time_count_);
+            RCLCPP_DEBUG(this->get_logger(), "Query time (API) with %d points: %f ms", request->num_pts, temp_time);
             for(double dist: dists)
             {
                 response->dists.push_back(dist);
@@ -449,7 +449,7 @@ class GpMapNode: public rclcpp::Node
                     DEBUG_registration_square_time_sum_ += temp_time * temp_time;
                     DEBUG_registration_max_time_ = std::max(DEBUG_registration_max_time_, temp_time);
                     DEBUG_registration_time_count_++;
-                    RCLCPP_INFO(this->get_logger(), "Registration time: %f ms, avg: %f ms, stddev: %f ms, max: %f ms",
+                    RCLCPP_DEBUG(this->get_logger(), "Registration time: %f ms, avg: %f ms, stddev: %f ms, max: %f ms",
                                 temp_time,
                                 DEBUG_registration_time_sum_ / DEBUG_registration_time_count_,
                                 std::sqrt((DEBUG_registration_square_time_sum_ / DEBUG_registration_time_count_) - std::pow(DEBUG_registration_time_sum_ / DEBUG_registration_time_count_, 2)),
@@ -476,7 +476,7 @@ class GpMapNode: public rclcpp::Node
 
 
                 double temp_time = sw2.stop();
-                RCLCPP_INFO(this->get_logger(), "Time to add points to map: %f ms", temp_time);
+                RCLCPP_DEBUG(this->get_logger(), "Time to add points to map: %f ms", temp_time);
                 counter_++;
                 last_pc_epoch_time_ = std::chrono::high_resolution_clock::now();
             }
@@ -492,7 +492,7 @@ class GpMapNode: public rclcpp::Node
             time_process_pc_square_sum_ += time_ms * time_ms;
             time_process_pc_count_++;
             time_process_pc_max_ = std::max(time_process_pc_max_, time_ms);
-            RCLCPP_INFO(this->get_logger(), "Total time to process point cloud: %f ms, avg: %f ms, stddev: %f ms, max: %f ms",
+            RCLCPP_DEBUG(this->get_logger(), "Total time to process point cloud: %f ms, avg: %f ms, stddev: %f ms, max: %f ms",
                         time_ms,
                         time_process_pc_sum_ / time_process_pc_count_,
                         std::sqrt((time_process_pc_square_sum_ / time_process_pc_count_) - std::pow(time_process_pc_sum_ / time_process_pc_count_, 2)),
@@ -611,7 +611,7 @@ class GpMapNode: public rclcpp::Node
                     previous_counter_ = counter;
                     if(map_pub_->get_subscription_count() > 0)
                     {
-                        RCLCPP_INFO(this->get_logger(), "Publishing map points");
+                        RCLCPP_DEBUG(this->get_logger(), "Publishing map points");
                         map_mutex_.lock();
                         std::vector<Pointd> pts = map_->getPts();
                         map_mutex_.unlock();
@@ -681,7 +681,7 @@ class GpMapNode: public rclcpp::Node
                                 << q.w()
                                 << std::endl; // Write the current pose to the trajectory file
                 trajectory_file.close();
-                RCLCPP_INFO(this->get_logger(), "Updated trajectory file: %s", path.c_str());
+                RCLCPP_DEBUG(this->get_logger(), "Updated trajectory file: %s", path.c_str());
             }
             else
             {
