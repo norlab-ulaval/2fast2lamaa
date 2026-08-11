@@ -10,7 +10,7 @@
 
 
 const double kMinNodeDist = 1.0;
-const int kNumAdjacentNodesToCheck = 20;
+const int kNumAdjacentNodesToCheck = 200;
 
 
 class SubmapManager
@@ -72,7 +72,7 @@ class SubmapManager
                         {
                             submap_paths_.push_back(ply_path);
                             overlaps.push_back({std::numeric_limits<int64_t>::max(), std::numeric_limits<int64_t>::min()});
-                            
+
                             // Load the trajectory
                             std::ifstream traj_file(traj_path);
                             if(!traj_file)
@@ -114,7 +114,7 @@ class SubmapManager
                                 }
                             }
                             traj_file.close();
-                            
+
                         }
                         else
                         {
@@ -284,7 +284,7 @@ class SubmapManager
                     next_map_poses_.clear();
                 }
             }
-                
+
         }
 
 
@@ -328,7 +328,7 @@ class SubmapManager
             {
                 current_map_->set2D(is_2d);
             }
-        }            
+        }
 
     private:
         MapDistFieldOptions options_;
@@ -389,7 +389,7 @@ class SubmapManager
                 traj_path = map_path_ + "trajectory_map.csv";
             }
 
-            //std::cout << "Writing trajectory to: " << traj_path << std::endl;            
+            //std::cout << "Writing trajectory to: " << traj_path << std::endl;
             std::ofstream traj_file(traj_path);
             if(!traj_file)
             {
